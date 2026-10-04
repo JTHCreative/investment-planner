@@ -26,7 +26,7 @@ of our own.
 | **Firebase Auth** | Sign-in (email/password; Google on web). |
 | **Firestore** | Each user's portfolios, trades, plan history and API keys (private to them), plus a shared price-history cache. |
 | **Finnhub** (free key) | Live quotes, symbol search, basic stats. 60 calls a minute. |
-| **Alpha Vantage** (free key) | 20+ years of monthly prices, adjusted for dividends and splits. 25 downloads a day. |
+| **Alpha Vantage** (free key) | 20+ years of monthly prices, adjusted for dividends and splits. 25 downloads a day, about one a second (the app queues them). |
 
 The app calls Finnhub and Alpha Vantage straight from the browser. Alpha Vantage's daily limit is small, so history works
 like a shared library shelf: the first person to look up VTI downloads it and puts a copy in Firestore, and everyone

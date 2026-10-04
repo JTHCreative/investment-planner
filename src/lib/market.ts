@@ -1,6 +1,6 @@
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { db } from '../firebase';
-import { alphaVantageMonthly } from './providers/alphaVantage';
+import { AlphaVantageError, alphaVantageMonthly } from './providers/alphaVantage';
 import { finnhubDetails, finnhubQuote, finnhubSearch, type Details } from './providers/finnhub';
 import { mockProvider } from './providers/mock';
 import type { PriceSeries, Quote, SearchResult } from './types';
@@ -47,6 +47,8 @@ export function setUserApiKeys(next: Partial<ApiKeys>) {
   userKeys = { ...next };
   quoteCache.clear();
   historyCache.clear();
+  recentFailures.clear();
+  avPausedUntil = 0;
   version++;
   listeners.forEach((fn) => fn());
 }
@@ -117,29 +119,96 @@ export async function getDetails(symbol: string): Promise<Details> {
 
 /** Monthly history changes slowly; refreshing every couple of days keeps well inside 25 downloads a day. */
 const HISTORY_TTL_MS = 2 * 24 * 60 * 60 * 1000;
+/** Free Alpha Vantage keys allow about one request a second; leave a little margin. */
+const AV_SPACING_MS = 1500;
+/** Don't ask again for a symbol that just failed; every request, failed or not, counts against the daily 25. */
+const FAILURE_COOLDOWN_MS = 10 * 60 * 1000;
+/** After the daily limit is hit, stop calling Alpha Vantage for a while instead of spending nothing but errors. */
+const DAILY_LIMIT_PAUSE_MS = 60 * 60 * 1000;
+
 const historyCache = new Map<string, Promise<PriceSeries>>();
+const recentFailures = new Map<string, { error: Error; at: number }>();
+let avPausedUntil = 0;
+let avQueue: Promise<unknown> = Promise.resolve();
+let avLastCall = 0;
+
+/** Problems with the shared Firestore cache. Without a working cache every visit re-downloads history. */
+let cacheProblem = '';
+export const historyCacheProblem = () => cacheProblem;
+
+function reportCacheProblem(err: unknown) {
+  const code = (err as { code?: string })?.code;
+  const message =
+    code === 'permission-denied'
+      ? 'The shared price-history cache is blocked by Firestore security rules, so every visit re-downloads history and uses up Alpha Vantage’s 25 free downloads quickly. Publish the latest firestore.rules in the Firebase console.'
+      : `The shared price-history cache isn’t working (${errorMessage(err)}), so history is re-downloaded on every visit.`;
+  console.warn('marketHistory cache:', err);
+  if (message !== cacheProblem) {
+    cacheProblem = message;
+    listeners.forEach((fn) => fn());
+  }
+}
 
 interface CachedHistory extends PriceSeries {
   fetchedAt: number;
+}
+
+/** One Alpha Vantage request at a time, spaced out, retrying once or twice if it says we're going too fast. */
+function fetchMonthlyQueued(symbol: string): Promise<PriceSeries> {
+  const run = async () => {
+    for (let attempt = 0; ; attempt++) {
+      if (Date.now() < avPausedUntil) {
+        throw new AlphaVantageError('daily-limit', 'Alpha Vantage’s free limit (25 history downloads a day) is used up. Already-downloaded symbols still work; new ones will load after the limit resets.');
+      }
+      const wait = avLastCall + AV_SPACING_MS - Date.now();
+      if (wait > 0) await new Promise((r) => setTimeout(r, wait));
+      avLastCall = Date.now();
+      try {
+        return await alphaVantageMonthly(symbol, requireKey('alphaVantage'));
+      } catch (err) {
+        if (err instanceof AlphaVantageError && err.kind === 'too-fast' && attempt < 2) {
+          avLastCall = Date.now() + 2000;
+          continue;
+        }
+        if (err instanceof AlphaVantageError && err.kind === 'daily-limit') avPausedUntil = Date.now() + DAILY_LIMIT_PAUSE_MS;
+        throw err;
+      }
+    }
+  };
+  const next = avQueue.then(run, run);
+  avQueue = next.catch(() => {});
+  return next;
 }
 
 async function loadHistory(symbol: string): Promise<PriceSeries> {
   if (useMockData) return mockProvider.history(symbol);
 
   const ref = doc(db, 'marketHistory', symbol.replace(/\//g, '_'));
-  const snap = await getDoc(ref).catch(() => null);
-  const cached = snap?.data() as CachedHistory | undefined;
+  let cached: CachedHistory | undefined;
+  try {
+    cached = (await getDoc(ref)).data() as CachedHistory | undefined;
+  } catch (err) {
+    reportCacheProblem(err);
+  }
   if (cached && Date.now() - cached.fetchedAt < HISTORY_TTL_MS) {
     return { symbol, dates: cached.dates, closes: cached.closes };
   }
 
+  const failed = recentFailures.get(symbol);
+  if (failed && Date.now() - failed.at < FAILURE_COOLDOWN_MS) {
+    if (cached) return { symbol, dates: cached.dates, closes: cached.closes };
+    throw failed.error;
+  }
+
   try {
-    const fresh = await alphaVantageMonthly(symbol, requireKey('alphaVantage'));
+    const fresh = await fetchMonthlyQueued(symbol);
     if (!fresh.dates.length) throw new Error(`No price history found for ${symbol}.`);
-    // Share with every user so the next person doesn't spend a download on it. A failed write isn't fatal.
-    setDoc(ref, { ...fresh, fetchedAt: Date.now() }).catch(() => {});
+    recentFailures.delete(symbol);
+    // Share with every user so the next person doesn't spend a download on it.
+    setDoc(ref, { ...fresh, fetchedAt: Date.now() }).catch(reportCacheProblem);
     return fresh;
   } catch (err) {
+    recentFailures.set(symbol, { error: err instanceof Error ? err : new Error(String(err)), at: Date.now() });
     // An old copy beats nothing, e.g. when today's free downloads are used up.
     if (cached) return { symbol, dates: cached.dates, closes: cached.closes };
     throw err;

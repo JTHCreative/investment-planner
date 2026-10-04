@@ -28,6 +28,7 @@ export function SymbolSearch({
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const seq = useRef(0);
+  const closeTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     const q = query.trim();
@@ -63,7 +64,12 @@ export function SymbolSearch({
   const shown = results.filter((r) => !exclude.includes(r.symbol));
 
   return (
-    <div className="search" onBlur={() => setTimeout(() => setOpen(false), 150)}>
+    <div
+      className="search"
+      // Close a moment after focus leaves, so a click on a result still lands; coming back cancels it.
+      onBlur={() => (closeTimer.current = setTimeout(() => setOpen(false), 150))}
+      onFocus={() => clearTimeout(closeTimer.current)}
+    >
       <input
         type="search"
         value={query}

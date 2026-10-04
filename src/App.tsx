@@ -1,5 +1,5 @@
 import { signOut } from 'firebase/auth';
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useSyncExternalStore } from 'react';
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { auth } from './firebase';
@@ -10,7 +10,7 @@ import { PortfoliosPage } from './pages/PortfoliosPage';
 import { ResearchPage } from './pages/ResearchPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { watchApiKeys } from './lib/db';
-import { missingKeys, setUserApiKeys, type ApiKeys } from './lib/market';
+import { historyCacheProblem, missingKeys, setUserApiKeys, subscribeMarket, type ApiKeys } from './lib/market';
 
 function Shell() {
   const { user, loading } = useAuth();
@@ -35,6 +35,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
     [uid],
   );
   const location = useLocation();
+  const cacheProblem = useSyncExternalStore(subscribeMarket, historyCacheProblem);
   if (!apiKeys) return <div className="login muted">Loading…</div>;
   const missing = missingKeys();
 
@@ -57,6 +58,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
             <Link to="/settings">Add them in Settings</Link>
           </div>
         )}
+        {cacheProblem && <div className="card notice">{cacheProblem}</div>}
         <Routes>
           <Route path="/" element={<PortfoliosPage />} />
           <Route path="/p/:id" element={<PortfolioPage />} />
