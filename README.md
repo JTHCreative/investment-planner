@@ -98,6 +98,27 @@ npm run deploy              # builds, then deploys hosting, functions and Firest
 
 The web app is then live at `https://<project-id>.web.app`.
 
+## Hosting the web app on GitHub Pages
+
+`.github/workflows/deploy-pages.yml` tests, builds and publishes the web app to
+`https://<owner>.github.io/<repo>/` on every push to `main` (or on demand from the Actions tab).
+`.github/workflows/ci.yml` runs the tests and both builds on pull requests and other branches.
+
+GitHub Pages only hosts the website itself. Sign-in, the database and market data still come from Firebase, so do the
+Firebase steps above first (at minimum `firebase deploy --only functions,firestore`). One-time setup:
+
+1. **Turn on Pages:** repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
+2. **Give the build your Firebase config:** repo **Settings → Secrets and variables → Actions → Variables** tab, and add
+   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`,
+   `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` (and `VITE_FUNCTIONS_REGION` if not `us-central1`).
+   These are variables rather than secrets because Firebase web config is public by design: it ships to every
+   browser. What protects your data is the Firestore rules.
+3. **Allow sign-in from Pages:** Firebase console → **Authentication → Settings → Authorized domains → Add domain** →
+   `<owner>.github.io`.
+4. Push to `main`. The workflow run shows the live URL when it finishes.
+
+Without step 2 the site still deploys, but it shows a "Firebase isn't configured yet" screen.
+
 ## Phone apps
 
 ```bash
