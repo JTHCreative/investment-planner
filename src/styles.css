@@ -270,10 +270,19 @@ label.checkbox { flex-direction: row; align-items: center; gap: 8px; }
 .table .num { text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .weight-input { width: 80px; text-align: right; margin-right: 4px; }
 
-/* Allocation bar: 2px surface gap between segments */
-.alloc-bar { display: flex; height: 14px; gap: 2px; border-radius: 4px; overflow: hidden; }
-.alloc-bar span { min-width: 2px; }
 .alloc-cash { background: var(--cash); }
+
+/* Allocation pie beside its table; stacked on phones */
+.alloc-layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); gap: 24px; align-items: start; }
+@media (max-width: 720px) {
+  .alloc-layout { grid-template-columns: minmax(0, 1fr); }
+}
+.pie { width: 100%; max-width: 260px; margin: 0 auto; }
+.pie svg { display: block; width: 100%; height: auto; touch-action: manipulation; }
+.pie path { cursor: pointer; transition: opacity 150ms; }
+.pie path.pie-dim { opacity: 0.35; }
+.pie-label { font-size: 12px; fill: var(--text-muted); }
+.pie-value { font-size: 20px; font-weight: 700; fill: var(--text); font-variant-numeric: tabular-nums; }
 
 /* Numbers */
 .stat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
@@ -299,3 +308,13 @@ details[open] > summary { margin-bottom: 12px; }
 .login-card form input { width: 100%; }
 
 .notice { margin-bottom: 16px; border-color: var(--series-4); }
+
+.icon-button { border: none; background: none; padding: 4px 8px; color: var(--text-muted); font-size: 0.9rem; line-height: 1; }
+.icon-button:hover { color: var(--loss); }
+@media (max-width: 560px) {
+  .alloc-table td, .alloc-table th { padding-left: 4px; padding-right: 4px; }
+  .alloc-table .weight-input { width: 62px; }
+  .alloc-table tfoot .link { font-size: 0.8rem; white-space: normal; }
+}
+/* Let the name column absorb the squeeze (and truncate) instead of widening the table. */
+.alloc-table td:first-child { width: 100%; max-width: 0; }

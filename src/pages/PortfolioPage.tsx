@@ -87,7 +87,7 @@ export function PortfolioPage() {
       </nav>
 
       {tab === 'overview' && <Overview p={p} quotes={quotes.data} pricesReady={pricesReady} />}
-      {tab === 'plan' && <PlanTab p={p} />}
+      {tab === 'plan' && <PlanTab p={p} amount={pricesReady && value > 0 ? value : p.startingCash} />}
       {tab === 'backtest' && <AnalysisTab p={p} prices={prices} kind="backtest" />}
       {tab === 'projection' && <AnalysisTab p={p} prices={prices} kind="projection" />}
       {tab === 'activity' && <Activity p={p} />}
@@ -294,7 +294,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
   );
 }
 
-function PlanTab({ p }: { p: Portfolio }) {
+function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
   const user = useUser();
   const [draft, setDraft] = useState<Target[]>(p.targets);
   const [note, setNote] = useState('');
@@ -350,7 +350,7 @@ function PlanTab({ p }: { p: Portfolio }) {
         <p className="muted small">
           Decide what share of the money goes where. You can change this any time; each saved version is kept under Activity.
         </p>
-        <AllocationEditor targets={draft} onChange={(t) => { setDraft(t); setTrades(null); }} />
+        <AllocationEditor targets={draft} amount={amount} onChange={(t) => { setDraft(t); setTrades(null); }} />
         <label>
           Note for this version (optional)
           <input maxLength={200} value={note} placeholder="e.g. More bonds after reading about sequence risk" onChange={(e) => setNote(e.target.value)} />
