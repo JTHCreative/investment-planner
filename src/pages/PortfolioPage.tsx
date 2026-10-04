@@ -1,10 +1,20 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { AllocationEditor } from '../components/AllocationEditor';
-import { DuplicateButton } from '../components/DuplicateDialog';
 import { BacktestPanel, ProjectionPanel } from '../components/Analysis';
-import { SERIES_COLORS, ValueLineChart } from '../components/Charts';
+import { AreaValueChart, ChartLegend } from '../components/Charts';
+import { DuplicateButton } from '../components/DuplicateDialog';
+import {
+  ArrowDownIcon,
+  ArrowUpIcon,
+  BackIcon,
+  ChevronIcon,
+  GainBadge,
+  RefreshIcon,
+  TrashIcon,
+  WalletIcon,
+} from '../components/Icons';
 import { typeLabel } from '../components/SymbolSearch';
 import {
   deletePortfolio,
@@ -15,7 +25,7 @@ import {
   watchRevisions,
   watchTransactions,
 } from '../lib/db';
-import { date, money, moneyExact, pct, shares } from '../lib/format';
+import { date, monthLabel, moneyExact, pct, pctSigned, shares, signedMoney } from '../lib/format';
 import { useHistories, usePortfolio, useQuotes } from '../lib/hooks';
 import { errorMessage, getQuotes } from '../lib/market';
 import { holdingsValue, planRebalance, totalValue, validateTargets } from '../lib/sim/rebalance';
@@ -30,6 +40,14 @@ const TABS = [
   ['activity', 'Activity'],
 ] as const;
 type Tab = (typeof TABS)[number][0];
+
+/** Holdings and plan slices share colors: the plan's order first, then anything held but not in the plan. */
+function colorMap(p: Portfolio): Map<string, string> {
+  const order = [...p.targets.map((t) => t.symbol), ...Object.keys(p.holdings ?? {})];
+  const map = new Map<string, string>();
+  for (const s of order) if (!map.has(s)) map.set(s, `var(--series-${(map.size % 6) + 1})`);
+  return map;
+}
 
 export function PortfolioPage() {
   const { id = '' } = useParams();
@@ -52,28 +70,34 @@ export function PortfolioPage() {
   const prices = Object.fromEntries(Object.values(quotes.data).map((q) => [q.symbol, q.price]));
   const pricesReady = Object.keys(p.holdings ?? {}).every((s) => s in prices);
   const value = totalValue(p, prices);
+  const gain = value - p.startingCash;
 
   return (
-    <div className="stack">
-      <Link to="/" className="small">← All portfolios</Link>
-      <header className="portfolio-header">
-        <div>
+    <>
+      <div className="row spread" style={{ marginBottom: -8 }}>
+        <Link to="/" className="back-link" style={{ marginBottom: 0 }}>
+          <BackIcon />
+          Back to portfolios
+        </Link>
+        <DuplicateButton portfolio={p} className="btn sm" />
+      </div>
+      <div className="page-head">
+        <div className="titles">
           <h1>{p.name}</h1>
-          {p.description && <p className="muted">{p.description}</p>}
+          {p.description && <p className="subtitle">{p.description}</p>}
         </div>
-        <div className="headline">
-          <DuplicateButton portfolio={p} className="small header-action" />
-          <div className="headline-value">{pricesReady ? money(value) : '…'}</div>
+        <div className="figure">
+          <span className="big-number">{pricesReady ? moneyExact(value) : '…'}</span>
           {pricesReady && (
-            <div className={value >= p.startingCash ? 'gain' : 'loss'}>
-              {money(value - p.startingCash)} ({pct(value / p.startingCash - 1, 2, true)})
-            </div>
+            <GainBadge value={gain}>
+              {signedMoney(gain)} ({pctSigned(gain / p.startingCash, 2)})
+            </GainBadge>
           )}
         </div>
-      </header>
+      </div>
       {quotes.error && <p className="error">Live prices unavailable: {quotes.error}</p>}
 
-      <nav className="tabs" role="tablist">
+      <div className="tabs" role="tablist" aria-label="Portfolio sections">
         {TABS.map(([key, label]) => (
           <button
             key={key}
@@ -85,13 +109,22 @@ export function PortfolioPage() {
             {label}
           </button>
         ))}
-      </nav>
+      </div>
 
       {tab === 'overview' && <Overview p={p} quotes={quotes.data} pricesReady={pricesReady} />}
       {tab === 'plan' && <PlanTab p={p} amount={pricesReady && value > 0 ? value : p.startingCash} />}
       {tab === 'backtest' && <AnalysisTab p={p} prices={prices} kind="backtest" />}
       {tab === 'projection' && <AnalysisTab p={p} prices={prices} kind="projection" />}
       {tab === 'activity' && <Activity p={p} />}
+    </>
+  );
+}
+
+function StatCard({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="stat-card">
+      <span className="label">{label}</span>
+      <span className="value">{children}</span>
     </div>
   );
 }
@@ -101,83 +134,124 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
   const total = totalValue(p, prices);
   const invested = holdingsValue(p.holdings ?? {}, prices);
   const targetBySymbol = new Map(p.targets.map((t) => [t.symbol, t.weight]));
+  const colors = colorMap(p);
+  const plannedCash = Math.max(0, 1 - p.targets.reduce((a, t) => a + t.weight, 0));
   const rows = Object.entries(p.holdings ?? {}).sort(
     ([a, ha], [b, hb]) => hb.shares * (prices[b] ?? 0) - ha.shares * (prices[a] ?? 0),
   );
+  const updated = Math.max(0, ...Object.values(quotes).map((q) => q.updatedAt ?? 0));
 
   return (
-    <div className="stack">
-      <div className="stat-grid">
-        <div className="stat"><div className="stat-label">Invested</div><div className="stat-value">{pricesReady ? money(invested) : '…'}</div></div>
-        <div className="stat"><div className="stat-label">Cash</div><div className="stat-value">{money(p.cash)}</div></div>
-        <div className="stat"><div className="stat-label">Started with</div><div className="stat-value">{money(p.startingCash)}</div></div>
-        <div className="stat"><div className="stat-label">Opened</div><div className="stat-value">{date(p.createdAt)}</div></div>
+    <>
+      <div className="stat-cards">
+        <StatCard label="Invested">{pricesReady ? moneyExact(invested) : '…'}</StatCard>
+        <StatCard label="Cash">{moneyExact(p.cash)}</StatCard>
+        <StatCard label="Started with">{moneyExact(p.startingCash)}</StatCard>
+        <StatCard label="Opened">{date(p.createdAt)}</StatCard>
       </div>
 
       {rows.length === 0 ? (
-        <div className="card">
-          <p>Nothing is invested yet.</p>
-          <Link className="button primary" to="?tab=plan">Choose how to invest</Link>
-        </div>
+        <section className="card">
+          <div className="card-head">
+            <h2>Nothing is invested yet</h2>
+            <p className="muted small">Pick a mix of investments, then buy them with your pretend cash at today’s prices.</p>
+          </div>
+          <div className="actions">
+            <Link className="btn primary" to="?tab=plan">Choose how to invest</Link>
+          </div>
+        </section>
       ) : (
         <>
+          <section className="card flush" aria-labelledby="hold-h">
+            <div className="card-head inline" style={{ alignItems: 'center' }}>
+              <h3 id="hold-h">Holdings</h3>
+              {updated > 0 && (
+                <span className="row xsmall muted" style={{ gap: 6 }}>
+                  <RefreshIcon size={14} />
+                  Updated {new Date(updated).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                </span>
+              )}
+            </div>
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Holding</th>
+                    <th className="num">Shares</th>
+                    <th className="num">Price</th>
+                    <th className="num">Value</th>
+                    <th className="num">Gain</th>
+                    <th className="num">Weight / plan</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map(([symbol, h]) => {
+                    const q = quotes[symbol];
+                    const target = p.targets.find((t) => t.symbol === symbol);
+                    // Live quotes may not carry a name; the plan remembers the one picked in search.
+                    const name = q?.name && q.name !== symbol ? q.name : target?.name;
+                    const v = h.shares * (q?.price ?? NaN);
+                    const gain = v - h.costBasis;
+                    return (
+                      <tr key={symbol}>
+                        <td>
+                          <div className="holding">
+                            <span className="swatch" style={{ background: colors.get(symbol) }} />
+                            <div>
+                              <span className="sym">
+                                <Link to={`/research/${encodeURIComponent(symbol)}`}>{symbol}</Link>
+                                <span className="tag">{typeLabel(q?.type || target?.type)}</span>
+                              </span>
+                              {name && <span className="sub truncate">{name}</span>}
+                            </div>
+                          </div>
+                        </td>
+                        <td className="num">{shares(h.shares)}</td>
+                        <td className="num">
+                          <div>{q ? moneyExact(q.price) : '…'}</div>
+                          {q?.changePercent !== undefined && (
+                            <div className="sub">
+                              {q.changePercent >= 0 ? '▲' : '▼'} {pctSigned(q.changePercent / 100, 2)} today
+                            </div>
+                          )}
+                        </td>
+                        <td className="num">{moneyExact(v)}</td>
+                        <td className="num">
+                          <div>{signedMoney(gain)}</div>
+                          <div className="sub">{pctSigned(gain / h.costBasis, 1)}</div>
+                        </td>
+                        <td className="num">
+                          {pct(v / total)} <span className="muted">/ plan {pct(targetBySymbol.get(symbol) ?? 0, 0)}</span>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                  <tr>
+                    <td>
+                      <div className="holding">
+                        <span className="swatch" style={{ background: 'var(--cash)' }} />
+                        <span style={{ fontSize: 16 }}>Cash</span>
+                      </div>
+                    </td>
+                    <td className="num muted">—</td>
+                    <td className="num muted">—</td>
+                    <td className="num">{moneyExact(p.cash)}</td>
+                    <td className="num muted">—</td>
+                    <td className="num">
+                      {pct(p.cash / total)} <span className="muted">/ plan {pct(plannedCash, 0)}</span>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+            <p className="table-note">
+              Live prices refresh every minute. Gains are price changes only; dividends are counted in the performance chart, backtests and projections.
+            </p>
+          </section>
           <PerformanceChart p={p} quotes={quotes} />
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Holding</th>
-                  <th className="num">Shares</th>
-                  <th className="num">Price</th>
-                  <th className="num">Value</th>
-                  <th className="num">Gain</th>
-                  <th className="num">Weight / plan</th>
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map(([symbol, h]) => {
-                  const q = quotes[symbol];
-                  const target = p.targets.find((t) => t.symbol === symbol);
-                  // Live quotes may not carry a name; the plan remembers the one picked in search.
-                  const name = q?.name && q.name !== symbol ? q.name : target?.name;
-                  const v = h.shares * (q?.price ?? NaN);
-                  const gain = v - h.costBasis;
-                  return (
-                    <tr key={symbol}>
-                      <td>
-                        <Link to={`/research/${encodeURIComponent(symbol)}`}><strong>{symbol}</strong></Link>{' '}
-                        <span className="tag">{typeLabel(q?.type || target?.type)}</span>
-                        <div className="muted small truncate">{name}</div>
-                      </td>
-                      <td className="num">{shares(h.shares)}</td>
-                      <td className="num">
-                        {q ? moneyExact(q.price) : '…'}
-                        {q?.changePercent !== undefined && (
-                          <div className={`small ${q.changePercent >= 0 ? 'gain' : 'loss'}`}>{pct(q.changePercent / 100, 2, true)} today</div>
-                        )}
-                      </td>
-                      <td className="num">{money(v)}</td>
-                      <td className={`num ${gain >= 0 ? 'gain' : 'loss'}`}>
-                        {money(gain)}
-                        <div className="small">{pct(gain / h.costBasis, 1, true)}</div>
-                      </td>
-                      <td className="num">
-                        {pct(v / total)}
-                        <div className="muted small">plan {pct(targetBySymbol.get(symbol) ?? 0)}</div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-          <p className="muted small">
-            Live prices refresh every minute. Gains are price changes only; dividends are counted in the performance chart, backtests and projections.
-          </p>
         </>
       )}
-      <CashAndSettings p={p} />
-    </div>
+    </>
   );
 }
 
@@ -201,25 +275,40 @@ function PerformanceChart({ p, quotes }: { p: Portfolio; quotes: Record<string, 
     return valueHistory(txs, bySymbol, 0, today);
   }, [txs, histories.data, quotes]);
 
-  if (histories.loading) return <p className="muted">Loading performance…</p>;
-  if (points.length < 2) {
-    return (
-      <div className="card">
-        <h3>Value since opened</h3>
-        <p className="muted small">The chart fills in as prices change.</p>
-      </div>
-    );
-  }
+  const range =
+    points.length > 1 ? `${monthLabel(points[0].date.slice(0, 7))} – ${monthLabel(points[points.length - 1].date.slice(0, 7))}` : '';
+
   return (
-    <div className="card">
-      <h3>Value since opened</h3>
-      <ValueLineChart
-        data={points.map((pt) => ({ date: pt.date, value: pt.value }))}
-        xKey="date"
-        series={[{ key: 'value', label: 'Portfolio value', color: SERIES_COLORS[0] }]}
-        height={220}
-      />
-    </div>
+    <section className="card" aria-labelledby="perf-h">
+      <div className="card-head inline">
+        <h3 id="perf-h">Value since opened</h3>
+        {range && <span className="small muted">{range}</span>}
+      </div>
+      {histories.loading ? (
+        <p className="muted small">Loading performance…</p>
+      ) : histories.error ? (
+        <p className="error">{histories.error}</p>
+      ) : points.length < 2 ? (
+        <p className="muted small">The chart fills in as prices change.</p>
+      ) : (
+        <>
+          <AreaValueChart
+            data={points.map((pt) => ({ date: pt.date, value: pt.value }))}
+            xKey="date"
+            valueKey="value"
+            label="Portfolio value"
+            baseline={p.startingCash}
+            baselineLabel="Starting cash"
+          />
+          <ChartLegend
+            items={[
+              { label: 'Portfolio value', color: 'var(--line)' },
+              { label: 'Starting cash', color: 'var(--text-faint)', kind: 'dash' },
+            ]}
+          />
+        </>
+      )}
+    </section>
   );
 }
 
@@ -241,34 +330,46 @@ function CashAndSettings({ p }: { p: Portfolio }) {
   }
 
   return (
-    <details className="card">
-      <summary>Cash & settings</summary>
-      <div className="stack">
-        <div className="controls">
-          <label>
+    <details className="panel" open>
+      <summary>
+        <ChevronIcon size={20} />
+        Cash &amp; settings
+      </summary>
+      <div className="panel-body">
+        <div className="row wrap" style={{ gap: 12, alignItems: 'flex-end' }}>
+          <label className="field" style={{ flex: '0 1 200px' }}>
             Amount
-            <input type="number" min={0} step={100} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+            <span className="affix has-pre">
+              <span className="pre">$</span>
+              <input type="number" min={0} step={100} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
+            </span>
           </label>
-          <button onClick={() => run(() => moveCash(user.uid, p.id, amount))}>Add pretend cash</button>
-          <button onClick={() => run(() => moveCash(user.uid, p.id, -amount))}>Withdraw</button>
+          <button className="btn" onClick={() => run(() => moveCash(user.uid, p.id, amount))}>Add pretend cash</button>
+          <button className="btn" onClick={() => run(() => moveCash(user.uid, p.id, -amount))}>Withdraw</button>
         </div>
-        <div className="controls">
-          <label>
+        <div className="divider" />
+        <div className="row wrap" style={{ gap: 12, alignItems: 'flex-end' }}>
+          <label className="field" style={{ flex: '1 1 220px' }}>
             Name
             <input maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
           </label>
-          <label className="grow">
+          <label className="field" style={{ flex: '3 1 320px' }}>
             Notes
             <input maxLength={300} value={description} onChange={(e) => setDescription(e.target.value)} />
           </label>
-          <button disabled={!name.trim()} onClick={() => run(() => updatePortfolioInfo(user.uid, p.id, { name: name.trim(), description }))}>
+          <button
+            className="btn"
+            disabled={!name.trim()}
+            onClick={() => run(() => updatePortfolioInfo(user.uid, p.id, { name: name.trim(), description }))}
+          >
             Save
           </button>
         </div>
-        <div className="row gap-sm wrap">
-          <DuplicateButton portfolio={p} />
+        <div className="divider" />
+        <div className="actions">
+          <DuplicateButton portfolio={p} className="btn" />
           <button
-            className="danger"
+            className="btn danger"
             onClick={() =>
               confirm(`Delete "${p.name}" and its history? This can’t be undone.`) &&
               run(async () => {
@@ -277,6 +378,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
               })
             }
           >
+            <TrashIcon />
             Delete portfolio
           </button>
         </div>
@@ -335,36 +437,45 @@ function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
       setMessage('Done. Your pretend portfolio now matches the plan.');
     });
 
+  const sells = trades?.filter((t) => t.side === 'sell').reduce((a, t) => a + t.amount, 0) ?? 0;
+  const buys = trades?.filter((t) => t.side === 'buy').reduce((a, t) => a + t.amount, 0) ?? 0;
+  const cashUsed = Math.max(0, buys - sells);
+
   return (
-    <div className="stack">
-      <div className="card stack">
-        <h2>Target mix</h2>
-        <p className="muted small">
-          Decide what share of the money goes where. You can change this any time; each saved version is kept under Activity.
-        </p>
+    <>
+      <section className="card" aria-labelledby="plan-h" style={{ gap: 24 }}>
+        <div className="card-head">
+          <h2 id="plan-h">Target mix</h2>
+          <p className="muted small">
+            Decide what share of the money goes where. You can change this any time; each saved version is kept under Activity.
+          </p>
+        </div>
         <AllocationEditor targets={draft} amount={amount} onChange={(t) => { setDraft(t); setTrades(null); }} />
-        <label>
-          Note for this version (optional)
-          <input maxLength={200} value={note} placeholder="e.g. More bonds after reading about sequence risk" onChange={(e) => setNote(e.target.value)} />
+        <label className="field">
+          Note
+          <input maxLength={200} value={note} placeholder="Why this plan? (optional)" onChange={(e) => setNote(e.target.value)} />
         </label>
         {invalid && draft.length > 0 && <p className="error">{invalid}</p>}
-        <div className="row gap-sm wrap">
-          <button disabled={busy || !dirty || !!invalid} onClick={save}>Save plan</button>
-          <button className="primary" disabled={busy || !!invalid || !draft.length} onClick={preview}>
+        <div className="actions">
+          <button className="btn" disabled={busy || !dirty || !!invalid} onClick={save}>Save plan</button>
+          <button className="btn primary" disabled={busy || !!invalid || !draft.length} onClick={preview}>
             {Object.keys(p.holdings ?? {}).length ? 'Rebalance to this plan…' : 'Invest using this plan…'}
           </button>
-          {dirty && <button className="link" onClick={() => setDraft(p.targets)}>Undo changes</button>}
+          {dirty && <button className="btn ghost" onClick={() => setDraft(p.targets)}>Undo changes</button>}
+          {message && <span className="badge badge-gain">{message}</span>}
         </div>
-        {message && <p className="gain">{message}</p>}
         {error && <p className="error">{error}</p>}
-      </div>
+      </section>
 
       {trades && (
-        <div className="card stack">
-          <h2>Review pretend trades</h2>
-          {trades.length === 0 ? (
-            <p>Already on plan, nothing to trade.</p>
-          ) : (
+        <section className="card ring" aria-labelledby="rev-h">
+          <div className="card-head">
+            <h2 id="rev-h">Review pretend trades</h2>
+            <p className="muted small">
+              {trades.length ? 'These trades bring the portfolio to your target mix using today’s prices.' : 'Already on plan, nothing to trade.'}
+            </p>
+          </div>
+          {trades.length > 0 && (
             <>
               <div className="table-wrap">
                 <table className="table">
@@ -374,26 +485,39 @@ function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
                   <tbody>
                     {trades.map((t) => (
                       <tr key={t.symbol + t.side}>
-                        <td className={t.side === 'buy' ? 'gain' : 'loss'}>{t.side === 'buy' ? 'Buy' : 'Sell'}</td>
-                        <td><strong>{t.symbol}</strong> <span className="muted small">{draft.find((d) => d.symbol === t.symbol)?.name ?? ''}</span></td>
+                        <td>
+                          <span className={`badge sm ${t.side === 'buy' ? 'badge-buy' : ''}`}>
+                            {t.side === 'buy' ? <ArrowDownIcon size={14} /> : <ArrowUpIcon size={14} />}
+                            {t.side === 'buy' ? 'Buy' : 'Sell'}
+                          </span>
+                        </td>
+                        <td>
+                          {t.symbol} <span className="muted xsmall">{draft.find((d) => d.symbol === t.symbol)?.name ?? ''}</span>
+                        </td>
                         <td className="num">{shares(t.shares)}</td>
                         <td className="num">{moneyExact(t.price)}</td>
-                        <td className="num">{money(t.amount)}</td>
+                        <td className="num">{moneyExact(t.amount)}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-              <p className="muted small">Uses the latest market prices. Fractional shares, no fees or taxes.</p>
-              <div className="row gap-sm">
-                <button className="primary" disabled={busy} onClick={execute}>Confirm trades</button>
-                <button disabled={busy} onClick={() => setTrades(null)}>Cancel</button>
-              </div>
+              <p className="xsmall muted">
+                {sells > 0 ? `Sells ${moneyExact(sells)}` : 'Sells nothing'}
+                {cashUsed > 0 ? ` and uses ${moneyExact(cashUsed)} of cash.` : '.'} Uses the latest market prices, fractional shares, no fees or
+                taxes. Nothing real is bought or sold.
+              </p>
             </>
           )}
-        </div>
+          <div className="actions">
+            {trades.length > 0 && (
+              <button className="btn primary" disabled={busy} onClick={execute}>Confirm trades</button>
+            )}
+            <button className="btn" disabled={busy} onClick={() => setTrades(null)}>{trades.length ? 'Cancel' : 'Close'}</button>
+          </div>
+        </section>
       )}
-    </div>
+    </>
   );
 }
 
@@ -408,22 +532,30 @@ function AnalysisTab({ p, prices, kind }: { p: Portfolio; prices: Record<string,
   }, [source, p, prices, value, hasHoldings]);
 
   const initial = hasHoldings && value > 0 ? value : p.startingCash;
-  return (
-    <div className="card stack">
-      {hasHoldings && (
-        <div className="segmented" role="radiogroup" aria-label="What to analyze">
-          <button role="radio" aria-checked={source === 'plan'} className={source === 'plan' ? 'active' : ''} onClick={() => setSource('plan')}>
-            Saved plan
-          </button>
-          <button role="radio" aria-checked={source === 'holdings'} className={source === 'holdings' ? 'active' : ''} onClick={() => setSource('holdings')}>
-            Current holdings
-          </button>
-        </div>
-      )}
-      {kind === 'backtest' ? <BacktestPanel targets={targets} initial={initial} /> : <ProjectionPanel targets={targets} initial={initial} />}
+  const sourceControl = hasHoldings ? (
+    <div className="segmented" role="radiogroup" aria-label="What to analyze">
+      <button role="radio" aria-checked={source === 'plan'} className={source === 'plan' ? 'active' : ''} onClick={() => setSource('plan')}>
+        Saved plan
+      </button>
+      <button role="radio" aria-checked={source === 'holdings'} className={source === 'holdings' ? 'active' : ''} onClick={() => setSource('holdings')}>
+        Current holdings
+      </button>
     </div>
+  ) : null;
+
+  return kind === 'backtest' ? (
+    <BacktestPanel targets={targets} initial={initial} sourceControl={sourceControl} />
+  ) : (
+    <ProjectionPanel targets={targets} initial={initial} sourceControl={sourceControl} />
   );
 }
+
+const TX_BADGE: Record<Transaction['type'], { label: string; className: string; icon: ReactNode }> = {
+  buy: { label: 'Buy', className: 'badge-buy', icon: <ArrowDownIcon size={14} /> },
+  sell: { label: 'Sell', className: '', icon: <ArrowUpIcon size={14} /> },
+  deposit: { label: 'Deposit', className: 'badge-quiet', icon: <WalletIcon size={14} /> },
+  withdrawal: { label: 'Withdrawal', className: 'badge-quiet', icon: <WalletIcon size={14} /> },
+};
 
 function Activity({ p }: { p: Portfolio }) {
   const user = useUser();
@@ -433,42 +565,67 @@ function Activity({ p }: { p: Portfolio }) {
   useEffect(() => watchRevisions(user.uid, p.id, setRevisions), [user.uid, p.id]);
 
   return (
-    <div className="stack">
-      <div className="card">
-        <h2>Plan history</h2>
-        {revisions.length === 0 && <p className="muted">No saved plans yet.</p>}
-        <ul className="timeline">
-          {revisions.map((r) => (
-            <li key={r.id}>
-              <div className="muted small">{date(r.createdAt)}</div>
-              <div>{r.targets.map((t) => `${t.symbol} ${pct(t.weight, 1)}`).join(' · ') || 'All cash'}</div>
-              {r.note && <div className="small">“{r.note}”</div>}
-            </li>
-          ))}
-        </ul>
-      </div>
-      <div className="card">
-        <h2>Trades & cash</h2>
-        <div className="table-wrap">
-          <table className="table">
-            <thead>
-              <tr><th>Date</th><th>Type</th><th>Symbol</th><th className="num">Shares</th><th className="num">Price</th><th className="num">Amount</th></tr>
-            </thead>
-            <tbody>
-              {txs.map((t) => (
-                <tr key={t.id}>
-                  <td>{date(t.at)}</td>
-                  <td className="capitalize">{t.type}</td>
-                  <td>{t.symbol ?? ''}</td>
-                  <td className="num">{t.shares !== undefined ? shares(t.shares) : ''}</td>
-                  <td className="num">{t.price !== undefined ? moneyExact(t.price) : ''}</td>
-                  <td className="num">{money(t.amount)}</td>
-                </tr>
+    <>
+      <div className="row wrap" style={{ gap: 24, alignItems: 'flex-start' }}>
+        <section className="card" aria-labelledby="ph-h" style={{ flex: '1 1 320px' }}>
+          <h3 id="ph-h">Plan history</h3>
+          {revisions.length === 0 ? (
+            <p className="muted small">No saved plans yet.</p>
+          ) : (
+            <ol className="timeline">
+              {revisions.map((r, i) => (
+                <li key={r.id}>
+                  <div className="rail">
+                    <span className="dot" />
+                    {i < revisions.length - 1 && <span className="line" />}
+                  </div>
+                  <div className="body">
+                    <span className="xsmall muted">
+                      {date(r.createdAt)}
+                      {i === 0 ? ' · Current' : ''}
+                    </span>
+                    <span style={{ lineHeight: '24px' }}>
+                      {r.targets.map((t) => `${t.symbol} ${pct(t.weight, 1)}`).join(' · ') || 'All cash'}
+                    </span>
+                    {r.note && <span className="small muted">“{r.note}”</span>}
+                  </div>
+                </li>
               ))}
-            </tbody>
-          </table>
-        </div>
+            </ol>
+          )}
+        </section>
+        <section className="card" aria-labelledby="tc-h" style={{ flex: '999 1 560px', padding: '24px 8px 8px', gap: 12 }}>
+          <h3 id="tc-h" style={{ padding: '0 16px' }}>Trades &amp; cash</h3>
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr><th>Date</th><th>Type</th><th>Symbol</th><th className="num">Shares</th><th className="num">Price</th><th className="num">Amount</th></tr>
+              </thead>
+              <tbody>
+                {txs.map((t) => {
+                  const b = TX_BADGE[t.type];
+                  return (
+                    <tr key={t.id}>
+                      <td>{date(t.at)}</td>
+                      <td>
+                        <span className={`badge sm ${b.className}`}>
+                          {b.icon}
+                          {b.label}
+                        </span>
+                      </td>
+                      <td>{t.symbol ?? ''}</td>
+                      <td className="num">{t.shares !== undefined ? shares(t.shares) : ''}</td>
+                      <td className="num">{t.price !== undefined ? moneyExact(t.price) : ''}</td>
+                      <td className="num">{moneyExact(t.amount)}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </section>
       </div>
-    </div>
+      <CashAndSettings p={p} />
+    </>
   );
 }

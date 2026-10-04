@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { SERIES_COLORS, ValueLineChart } from '../components/Charts';
+import { AreaValueChart } from '../components/Charts';
+import { GainBadge } from '../components/Icons';
 import { StatGrid } from '../components/Analysis';
 import { SymbolSearch, typeLabel } from '../components/SymbolSearch';
-import { moneyCompact, moneyExact, pct } from '../lib/format';
+import { moneyCompact, moneyExact, monthLabel, pct, pctSigned } from '../lib/format';
 import { useHistories, useQuotes } from '../lib/hooks';
 import { getDetails } from '../lib/market';
 import type { Details } from '../lib/providers/finnhub';
@@ -15,7 +16,7 @@ const RANGES: [string, number][] = [
   ['5Y', 5],
   ['10Y', 10],
   ['20Y', 20],
-  ['Max', 0],
+  ['All', 0],
 ];
 
 export function ResearchPage() {
@@ -68,72 +69,84 @@ export function ResearchPage() {
   }, [history, range, sym]);
 
   return (
-    <div className="stack">
-      <h1>Research</h1>
-      <SymbolSearch onSelect={(r) => navigate(`/research/${encodeURIComponent(r.symbol)}`)} placeholder="Look up a stock, ETF, bond fund…" />
-      {!sym && (
-        <p className="muted">
-          Search for anything to see its price history and how risky it has been. Bonds are easiest to explore through bond
-          funds and ETFs such as BND, AGG, TLT, or SGOV (short-term Treasuries).
+    <>
+      <div className="stack">
+        <h1>Research</h1>
+        <div style={{ maxWidth: 640, display: 'flex' }}>
+          <SymbolSearch large onSelect={(r) => navigate(`/research/${encodeURIComponent(r.symbol)}`)} placeholder="Look up a stock, ETF, bond fund…" />
+        </div>
+        <p className="small muted" style={{ maxWidth: 760 }}>
+          Search for anything to see its price history and how risky it has been. Bonds are easiest to explore through bond funds and
+          ETFs such as BND, AGG, TLT, or SGOV (short-term Treasuries).
         </p>
-      )}
+      </div>
       {sym && (
-        <div className="card stack">
-          <div className="row spread wrap">
-            <div>
-              <h2>
-                {sym} <span className="tag">{typeLabel(q?.type)}</span>
-              </h2>
-              <div className="muted">{q?.name}{q?.exchange ? ` · ${q.exchange}` : ''}</div>
+        <section className="card" aria-labelledby="sym-h" style={{ gap: 24 }}>
+          <div className="page-head">
+            <div className="titles">
+              <div className="row" style={{ gap: 10 }}>
+                <h2 id="sym-h" style={{ fontSize: 30, lineHeight: '36px' }}>{sym}</h2>
+                <span className="tag" style={{ fontSize: 12, lineHeight: '16px', padding: '2px 8px' }}>{typeLabel(q?.type)}</span>
+              </div>
+              <span className="small muted">{[q?.name !== sym ? q?.name : '', q?.exchange].filter(Boolean).join(' · ')}</span>
             </div>
             {q && (
-              <div className="headline">
-                <div className="headline-value">{moneyExact(q.price)}</div>
+              <div className="figure">
+                <span className="big-number">{moneyExact(q.price)}</span>
                 {q.changePercent !== undefined && (
-                  <div className={q.changePercent >= 0 ? 'gain' : 'loss'}>{pct(q.changePercent / 100, 2, true)} today</div>
+                  <GainBadge value={q.changePercent}>{pctSigned(q.changePercent / 100, 2)} today</GainBadge>
                 )}
               </div>
             )}
           </div>
           {quotes.error && <p className="error">{quotes.error}</p>}
           {q && (
-            <div className="stat-grid">
-              <Stat label="52-week range" value={q.fiftyTwoWeekLow ? `${moneyExact(q.fiftyTwoWeekLow)} – ${moneyExact(q.fiftyTwoWeekHigh ?? NaN)}` : '—'} />
-              <Stat label="Dividend yield" value={q.dividendYield ? pct(q.dividendYield, 2) : '—'} />
-              <Stat label="Market cap" value={q.marketCap ? moneyCompact(q.marketCap) : '—'} />
-              <Stat label="P/E" value={q.trailingPE ? q.trailingPE.toFixed(1) : '—'} />
+            <div className="tiles">
+              <Tile label="52-week range" value={q.fiftyTwoWeekLow ? `${moneyExact(q.fiftyTwoWeekLow)} – ${moneyExact(q.fiftyTwoWeekHigh ?? NaN)}` : '—'} />
+              <Tile label="Dividend yield" value={q.dividendYield ? pct(q.dividendYield, 2) : '—'} />
+              <Tile label="Market cap" value={q.marketCap ? moneyCompact(q.marketCap) : '—'} />
+              <Tile label="P/E ratio" value={q.trailingPE ? q.trailingPE.toFixed(1) : '—'} />
             </div>
           )}
 
-          <div className="segmented" role="radiogroup" aria-label="Range">
+          <div className="segmented" role="radiogroup" aria-label="History length">
             {RANGES.map(([label, years]) => (
               <button key={label} role="radio" aria-checked={range === years} className={range === years ? 'active' : ''} onClick={() => setRange(years)}>
                 {label}
               </button>
             ))}
           </div>
-          {histories.loading && <p className="muted">Loading history…</p>}
+          {histories.loading && <p className="muted small">Loading history…</p>}
           {histories.error && <p className="error">{histories.error}</p>}
           {view && (
             <>
-              <ValueLineChart data={view.data} xKey="date" series={[{ key: 'close', label: 'Adjusted price', color: SERIES_COLORS[0] }]} />
-              <p className="muted small">
-                Month-end prices, adjusted for dividends and splits, so the chart shows total return. Stats cover {view.years.toFixed(1)} years from {view.from}.
-              </p>
+              <div className="stack" style={{ gap: 12 }}>
+                <AreaValueChart
+                  data={view.data.map((d) => ({ date: monthLabel(d.date.slice(0, 7)), close: d.close }))}
+                  xKey="date"
+                  valueKey="close"
+                  label="Adjusted price"
+                  height={308}
+                />
+                <p className="xsmall muted">
+                  {view.years.toFixed(1)} years of month-end prices, from {monthLabel(view.from.slice(0, 7))}. Adjusted for dividends and
+                  splits, so the chart shows total return.
+                </p>
+              </div>
               {view.stats.months >= 12 && <StatGrid stats={view.stats} />}
             </>
           )}
-        </div>
+        </section>
       )}
-    </div>
+    </>
   );
 }
 
-function Stat({ label, value }: { label: string; value: string }) {
+function Tile({ label, value }: { label: string; value: string }) {
   return (
-    <div className="stat">
-      <div className="stat-label">{label}</div>
-      <div className="stat-value">{value}</div>
+    <div className="tile">
+      <span className="label">{label}</span>
+      <span className={`value${value === '—' ? ' muted' : ''}`}>{value}</span>
     </div>
   );
 }

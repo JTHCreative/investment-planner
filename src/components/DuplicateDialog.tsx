@@ -5,13 +5,15 @@ import { duplicatePortfolio, type DuplicateMode } from '../lib/db';
 import { money } from '../lib/format';
 import { errorMessage } from '../lib/market';
 import type { Portfolio } from '../lib/types';
+import { CopyIcon } from './Icons';
 
 /** A "Duplicate" button that opens a small dialog, makes the copy, and opens the copy's plan editor. */
 export function DuplicateButton({ portfolio, className }: { portfolio: Portfolio; className?: string }) {
   const [open, setOpen] = useState(false);
   return (
     <>
-      <button type="button" className={className} onClick={() => setOpen(true)}>
+      <button type="button" className={className ?? 'btn'} onClick={() => setOpen(true)}>
+        <CopyIcon />
         Duplicate
       </button>
       {open && <DuplicateDialog portfolio={portfolio} onClose={() => setOpen(false)} />}
@@ -53,19 +55,19 @@ function DuplicateDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onCl
   return (
     // Escape and clicks on the backdrop close it, like any dialog.
     <dialog ref={ref} className="dialog" onClose={onClose} onClick={(e) => e.target === ref.current && onClose()}>
-      <form className="stack" onSubmit={submit}>
+      <form className="stack-lg" style={{ gap: 20 }} onSubmit={submit}>
         <h2>Duplicate “{p.name}”</h2>
-        <label>
+        <label className="field">
           Name for the copy
           <input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} autoFocus onFocus={(e) => e.target.select()} />
         </label>
 
         <fieldset className="choices">
-          <legend className="small muted">What to copy</legend>
+          <legend>What to copy</legend>
           <label className="choice">
             <input type="radio" name="mode" checked={mode === 'plan'} onChange={() => setMode('plan')} />
             <span>
-              <strong>Just the plan</strong>
+              <span style={{ fontSize: 16 }}>Just the plan</span>
               <span className="muted small">
                 Same mix of investments and {money(p.startingCash)} of fresh cash, nothing bought yet. Best for trying a variation and comparing.
               </span>
@@ -74,7 +76,7 @@ function DuplicateDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onCl
           <label className={`choice ${invested ? '' : 'disabled'}`}>
             <input type="radio" name="mode" checked={mode === 'exact'} disabled={!invested} onChange={() => setMode('exact')} />
             <span>
-              <strong>Exact copy</strong>
+              <span style={{ fontSize: 16 }}>Exact copy</span>
               <span className="muted small">
                 {invested
                   ? 'Also copies what’s invested, the cash, and the trade and plan history, so the copy starts exactly where this one is today.'
@@ -84,13 +86,13 @@ function DuplicateDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onCl
           </label>
         </fieldset>
 
-        <p className="muted small">The original stays exactly as it is. You’ll go straight to the copy’s plan so you can make your changes.</p>
+        <p className="xsmall muted">The original stays exactly as it is. You’ll go straight to the copy’s plan so you can make your changes.</p>
         {error && <p className="error">{error}</p>}
-        <div className="row gap-sm">
-          <button className="primary" disabled={busy || !name.trim()}>
+        <div className="actions">
+          <button className="btn primary" disabled={busy || !name.trim()}>
             {busy ? 'Copying…' : 'Duplicate'}
           </button>
-          <button type="button" onClick={onClose} disabled={busy}>
+          <button type="button" className="btn" onClick={onClose} disabled={busy}>
             Cancel
           </button>
         </div>

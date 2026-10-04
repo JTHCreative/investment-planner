@@ -1,5 +1,6 @@
-import { useState, type FormEvent } from 'react';
+import { useState, type FormEvent, type ReactNode } from 'react';
 import { useUser } from '../auth/AuthProvider';
+import { CheckIcon, ShieldIcon } from '../components/Icons';
 import { saveApiKeys } from '../lib/db';
 import { errorMessage, type ApiKeys } from '../lib/market';
 
@@ -25,37 +26,100 @@ export function SettingsPage({ current }: { current: Partial<ApiKeys> }) {
   }
 
   return (
-    <div className="stack">
+    <>
       <h1>Settings</h1>
-      <form className="card stack" onSubmit={submit}>
-        <h2>Market data keys</h2>
-        <p className="muted">
-          Prices come from two services with free plans. Each takes a minute to sign up for, and you paste the key here. Keys are saved
-          to your account, so they work on every device you sign in on.
-        </p>
-        <label>
-          Finnhub API key: live prices and search (free: 60 requests a minute)
-          <input value={finnhub} onChange={(e) => setFinnhub(e.target.value)} autoComplete="off" spellCheck={false} placeholder="e.g. cq1abc2def…" />
-        </label>
-        <p className="small">
-          Get one at <a href="https://finnhub.io/register" target="_blank" rel="noreferrer">finnhub.io/register</a>. The key is on your dashboard after sign-up.
-        </p>
-        <label>
-          Alpha Vantage API key: price history for backtests and projections (free: 25 downloads a day)
-          <input value={alphaVantage} onChange={(e) => setAlphaVantage(e.target.value)} autoComplete="off" spellCheck={false} placeholder="e.g. ABCD1234EFGH5678" />
-        </label>
-        <p className="small">
-          Get one at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer">alphavantage.co/support/#api-key</a>.
-          Each symbol’s history is downloaded once and shared through the app’s cache, so 25 a day goes a long way.
-        </p>
-        <div className="row gap-sm">
-          <button className="primary" disabled={busy}>Save keys</button>
-          {status && <span className={status === 'Saved.' ? 'gain' : 'error'}>{status}</span>}
+      <form className="card" onSubmit={submit} style={{ maxWidth: 760, padding: 32, gap: 28 }}>
+        <div className="card-head" style={{ gap: 8 }}>
+          <h2>Market data keys</h2>
+          <p className="muted" style={{ lineHeight: '24px' }}>
+            Prices come from two services with free plans. Each takes a minute to sign up for, and you paste the key here. Keys are saved
+            to your account, so they work on every device you sign in on.
+          </p>
         </div>
-        <p className="muted small">
-          Free keys are low-stakes, but they do travel from your browser to these services, so use free-tier keys here rather than paid ones.
-        </p>
+
+        <KeyField
+          title="Finnhub API key"
+          detail="Live prices and search (free: 60 requests a minute)"
+          value={finnhub}
+          onChange={setFinnhub}
+          placeholder="e.g. cq1abc2def…"
+          help={<>Get one at <a href="https://finnhub.io/register" target="_blank" rel="noreferrer">finnhub.io/register</a>. The key is on your dashboard after sign-up.</>}
+        />
+        <KeyField
+          title="Alpha Vantage API key"
+          detail="Price history for backtests and projections (free: 25 downloads a day)"
+          value={alphaVantage}
+          onChange={setAlphaVantage}
+          placeholder="e.g. ABCD1234EFGH5678"
+          help={
+            <>
+              Get one at <a href="https://www.alphavantage.co/support/#api-key" target="_blank" rel="noreferrer">alphavantage.co/support/#api-key</a>.
+              Each symbol’s history is downloaded once and shared through the app’s cache, so 25 a day goes a long way.
+            </>
+          }
+        />
+
+        <div className="actions" style={{ gap: 16 }}>
+          <button className="btn primary" disabled={busy} style={{ padding: '0 20px' }}>Save keys</button>
+          {status === 'Saved.' ? (
+            <span className="badge badge-gain">
+              <CheckIcon size={14} />
+              Saved.
+            </span>
+          ) : (
+            status && <span className="error">{status}</span>
+          )}
+        </div>
+
+        <div className="note-box">
+          <ShieldIcon size={18} />
+          <p>Free keys are low-stakes, but they do travel from your browser to these services, so use free-tier keys here rather than paid ones.</p>
+        </div>
       </form>
+    </>
+  );
+}
+
+function KeyField({
+  title,
+  detail,
+  value,
+  onChange,
+  placeholder,
+  help,
+}: {
+  title: string;
+  detail: string;
+  value: string;
+  onChange: (v: string) => void;
+  placeholder: string;
+  help: ReactNode;
+}) {
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <label className="stack" style={{ gap: 10 }}>
+        <span className="stack" style={{ gap: 2 }}>
+          <span>{title}</span>
+          <span className="small muted">{detail}</span>
+        </span>
+        <span className="affix">
+          <input
+            className="mono"
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            autoComplete="off"
+            spellCheck={false}
+            placeholder={placeholder}
+            style={{ paddingRight: 44 }}
+          />
+          {value.trim() && (
+            <span className="ok" aria-label="Key entered">
+              <CheckIcon size={18} />
+            </span>
+          )}
+        </span>
+      </label>
+      <p className="xsmall muted">{help}</p>
     </div>
   );
 }

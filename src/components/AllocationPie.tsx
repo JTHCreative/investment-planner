@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { money, pct } from '../lib/format';
+import { money, moneyExact, pct } from '../lib/format';
 
 export interface PieSlice {
   key: string;
@@ -137,9 +137,9 @@ export function AllocationPie({ slices, amount }: { slices: PieSlice[]; amount: 
   const summary = slices.map((s) => `${s.label} ${pct(s.weight)} (${money(s.weight * amount)})`).join(', ');
 
   return (
-    <div className="pie">
+    <figure className="pie">
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`Allocation of ${money(amount)}: ${summary}`}>
-        <circle cx={CX} cy={CY} r={(R_OUTER + R_INNER) / 2} fill="none" stroke="var(--grid)" strokeWidth={R_OUTER - R_INNER} />
+        <circle cx={CX} cy={CY} r={(R_OUTER + R_INNER) / 2} fill="none" stroke="var(--surface-2)" strokeWidth={R_OUTER - R_INNER} />
         {arcs.map(({ slice, a0, a1 }) => (
           <path
             key={slice.key}
@@ -154,17 +154,27 @@ export function AllocationPie({ slices, amount }: { slices: PieSlice[]; amount: 
             onClick={() => setActive((a) => (a === slice.key ? null : slice.key))}
           />
         ))}
-        <text x={CX} y={CY - 18} textAnchor="middle" className="pie-label">
+        <text x={CX} y={CY - 12} textAnchor="middle" className="pie-label">
           {activeSlice ? activeSlice.label : 'Invested'}
         </text>
-        <text x={CX} y={CY + 6} textAnchor="middle" className="pie-value">
-          {money((activeSlice ? activeSlice.weight : invested) * amount)}
+        <text x={CX} y={CY + 14} textAnchor="middle" className="pie-value">
+          {activeSlice ? money(activeSlice.weight * amount) : pct(invested, invested < 1 && invested > 0 ? 1 : 0)}
         </text>
-        <text x={CX} y={CY + 26} textAnchor="middle" className="pie-label">
-          {activeSlice ? pct(activeSlice.weight) : `${pct(invested)} of ${money(amount)}`}
+        <text x={CX} y={CY + 34} textAnchor="middle" className="pie-label">
+          {activeSlice ? pct(activeSlice.weight) : `of ${moneyExact(amount)}`}
         </text>
       </svg>
-    </div>
+      <figcaption>
+        {slices
+          .filter((s) => s.weight >= 0.0005)
+          .map((s) => (
+            <span key={s.key}>
+              <span className="swatch" style={{ background: s.color }} />
+              {s.label} {pct(s.weight, s.weight * 100 % 1 ? 1 : 0)}
+            </span>
+          ))}
+      </figcaption>
+    </figure>
   );
 }
 

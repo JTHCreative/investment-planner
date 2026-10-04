@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { errorMessage, searchSymbols } from '../lib/market';
 import type { SearchResult } from '../lib/types';
+import { SearchIcon } from './Icons';
 
 const TYPE_LABEL: Record<string, string> = {
   EQUITY: 'Stock',
@@ -17,10 +18,13 @@ export function SymbolSearch({
   onSelect,
   placeholder = 'Search stocks, ETFs, bond funds…',
   exclude = [],
+  large,
 }: {
   onSelect: (r: SearchResult) => void;
   placeholder?: string;
   exclude?: string[];
+  /** The bigger search box used on the Research page. */
+  large?: boolean;
 }) {
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<SearchResult[]>([]);
@@ -65,28 +69,31 @@ export function SymbolSearch({
 
   return (
     <div
-      className="search"
+      className={`search${large ? ' lg' : ''}`}
       // Close a moment after focus leaves, so a click on a result still lands; coming back cancels it.
       onBlur={() => (closeTimer.current = setTimeout(() => setOpen(false), 150))}
       onFocus={() => clearTimeout(closeTimer.current)}
     >
-      <input
-        type="search"
-        value={query}
-        placeholder={placeholder}
-        aria-label="Search symbols"
-        onFocus={() => setOpen(true)}
-        onChange={(e) => {
-          setQuery(e.target.value);
-          setOpen(true);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter' && shown[0]) {
-            e.preventDefault();
-            choose(shown[0]);
-          }
-        }}
-      />
+      <span className="affix has-icon">
+        <SearchIcon size={large ? 18 : 16} />
+        <input
+          type="search"
+          value={query}
+          placeholder={placeholder}
+          aria-label="Search symbols"
+          onFocus={() => setOpen(true)}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            setOpen(true);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter' && shown[0]) {
+              e.preventDefault();
+              choose(shown[0]);
+            }
+          }}
+        />
+      </span>
       {open && query.trim() && (
         <ul className="search-results" role="listbox">
           {loading && !shown.length && <li className="muted">Searching…</li>}

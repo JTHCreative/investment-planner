@@ -2,8 +2,9 @@ import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { DuplicateButton } from '../components/DuplicateDialog';
+import { BarsIcon, GainBadge, PlusIcon } from '../components/Icons';
 import { createPortfolio } from '../lib/db';
-import { money, pct } from '../lib/format';
+import { moneyExact, pct, signedMoney } from '../lib/format';
 import { usePortfolios, useQuotes } from '../lib/hooks';
 import { errorMessage } from '../lib/market';
 import { PRESETS } from '../lib/presets';
@@ -18,49 +19,79 @@ export function PortfoliosPage() {
   const [showCreate, setShowCreate] = useState(false);
 
   return (
-    <div className="stack">
-      <div className="row spread wrap">
-        <h1>Your portfolios</h1>
-        <div className="row gap-sm">
-          {portfolios.data.length > 1 && <Link className="button" to="/compare">Compare</Link>}
-          <button className="primary" onClick={() => setShowCreate(true)}>New portfolio</button>
+    <div className="stack-lg" style={{ gap: 32 }}>
+      <section className="stack-lg">
+        <div className="page-head">
+          <div className="titles">
+            <h1>Your portfolios</h1>
+            <p className="subtitle">
+              Each portfolio is a pretend account with pretend money. Try different mixes side by side to see which one fits you.
+            </p>
+          </div>
+          <div className="actions">
+            {portfolios.data.length > 1 && (
+              <Link className="btn" to="/compare">
+                <BarsIcon />
+                Compare
+              </Link>
+            )}
+            <button className="btn primary" onClick={() => setShowCreate(true)}>
+              <PlusIcon />
+              New portfolio
+            </button>
+          </div>
         </div>
-      </div>
-      <p className="muted">
-        Each portfolio is a pretend account with pretend money. Try different mixes side by side to see which one fits you.
-      </p>
+
+        {portfolios.error && <p className="error">{portfolios.error}</p>}
+        {portfolios.loading && <p className="muted">Loading…</p>}
+
+        <div className="portfolio-grid">
+          {portfolios.data.map((p) => {
+            const pending = Object.keys(p.holdings ?? {}).some((s) => !(s in prices));
+            const value = totalValue(p, prices);
+            const gain = value - p.startingCash;
+            return (
+              <div key={p.id} className="portfolio-card">
+                <div className="stack" style={{ gap: 4 }}>
+                  {/* The title link stretches over the whole card; the Duplicate button sits above it. */}
+                  <Link to={`/p/${p.id}`} className="name stretched-link" style={{ color: 'var(--text)', textDecoration: 'none' }}>
+                    {p.name}
+                  </Link>
+                  {p.description && <span className="muted small truncate">{p.description}</span>}
+                </div>
+                <div className="stack" style={{ gap: 8, alignItems: 'flex-start' }}>
+                  <span className="value">{pending ? '…' : moneyExact(value)}</span>
+                  {!pending && (
+                    <GainBadge value={gain}>
+                      {signedMoney(gain)} ({pct(gain / p.startingCash, 2, true)})
+                    </GainBadge>
+                  )}
+                </div>
+                <div className="stack" style={{ gap: 10 }}>
+                  {p.targets.length > 0 && (
+                    <div className="mix-bar" aria-hidden>
+                      {p.targets.map((t, i) => (
+                        <span key={t.symbol} style={{ flex: `${t.weight} 1 0`, background: `var(--series-${(i % 6) + 1})` }} />
+                      ))}
+                      {p.targets.reduce((a, t) => a + t.weight, 0) < 0.999 && (
+                        <span style={{ flex: `${1 - p.targets.reduce((a, t) => a + t.weight, 0)} 1 0`, background: 'var(--cash)' }} />
+                      )}
+                    </div>
+                  )}
+                  <span className="xsmall muted">
+                    {p.targets.length ? p.targets.map((t) => `${t.symbol} ${pct(t.weight, 0)}`).join(' · ') : 'No plan yet'}
+                  </span>
+                </div>
+                <DuplicateButton portfolio={p} className="btn sm card-action" />
+              </div>
+            );
+          })}
+        </div>
+      </section>
 
       {(showCreate || (!portfolios.loading && portfolios.data.length === 0)) && (
         <CreatePortfolio onCancel={portfolios.data.length ? () => setShowCreate(false) : undefined} />
       )}
-
-      {portfolios.error && <p className="error">{portfolios.error}</p>}
-      {portfolios.loading && <p className="muted">Loading…</p>}
-
-      <div className="grid">
-        {portfolios.data.map((p) => {
-          const pending = Object.keys(p.holdings ?? {}).some((s) => !(s in prices));
-          const value = totalValue(p, prices);
-          const gain = value / p.startingCash - 1;
-          return (
-            <div key={p.id} className="card portfolio-card">
-              {/* The title link stretches over the whole card; the Duplicate button sits above it. */}
-              <h2><Link to={`/p/${p.id}`} className="stretched-link">{p.name}</Link></h2>
-              {p.description && <p className="muted small truncate">{p.description}</p>}
-              <div className="headline-value">{pending ? '…' : money(value)}</div>
-              <div className={`small ${gain >= 0 ? 'gain' : 'loss'}`}>
-                {pending ? '' : `${pct(gain, 2, true)} since start (${money(p.startingCash)})`}
-              </div>
-              <div className="muted small">
-                {p.targets.length
-                  ? p.targets.map((t) => `${t.symbol} ${pct(t.weight, 0)}`).join(' · ')
-                  : 'No plan yet'}
-              </div>
-              <DuplicateButton portfolio={p} className="small card-action" />
-            </div>
-          );
-        })}
-      </div>
     </div>
   );
 }
@@ -94,32 +125,38 @@ function CreatePortfolio({ onCancel }: { onCancel?: () => void }) {
   }
 
   return (
-    <form className="card stack" onSubmit={submit}>
-      <h2>New portfolio</h2>
-      <div className="controls">
-        <label>
+    <section className="card" aria-labelledby="new-h">
+      <div className="card-head">
+        <h2 id="new-h">New portfolio</h2>
+        <p className="muted small">Start empty, or pick a ready-made mix and tweak it later.</p>
+      </div>
+      <form className="form-grid" onSubmit={submit}>
+        <label className="field">
           Name
           <input required maxLength={80} value={name} onChange={(e) => setName(e.target.value)} />
         </label>
-        <label>
-          Pretend starting cash
-          <input type="number" min={1} step="any" required value={cash} onChange={(e) => setCash(Number(e.target.value))} />
+        <label className="field">
+          Starting cash
+          <span className="affix has-pre">
+            <span className="pre">$</span>
+            <input type="number" min={1} step="any" required value={cash} onChange={(e) => setCash(Number(e.target.value))} />
+          </span>
         </label>
-        <label>
-          Starting mix
+        <label className="field">
+          Start from
           <select value={preset} onChange={(e) => setPreset(e.target.value)}>
-            <option value="">Blank, I’ll pick investments</option>
+            <option value="">Empty (all cash)</option>
             {PRESETS.map((p) => (
-              <option key={p.name} value={p.name}>{p.name}: {p.description}</option>
+              <option key={p.name} value={p.name}>{p.name} — {p.description}</option>
             ))}
           </select>
         </label>
-      </div>
-      {error && <p className="error">{error}</p>}
-      <div className="row gap-sm">
-        <button className="primary" disabled={busy || !(cash > 0)}>Create</button>
-        {onCancel && <button type="button" onClick={onCancel}>Cancel</button>}
-      </div>
-    </form>
+        {error && <p className="error" style={{ gridColumn: '1 / -1' }}>{error}</p>}
+        <div className="actions" style={{ gridColumn: '1 / -1' }}>
+          <button className="btn primary" disabled={busy || !(cash > 0)}>Create portfolio</button>
+          {onCancel && <button type="button" className="btn" onClick={onCancel}>Cancel</button>}
+        </div>
+      </form>
+    </section>
   );
 }
