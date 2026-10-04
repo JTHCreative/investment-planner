@@ -9,11 +9,11 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "emulators": "npm --prefix functions run build && firebase emulators:start",
+    "emulators": "firebase emulators:start --only auth,firestore --project demo-investment-planner",
     "cap:sync": "npm run build && cap sync",
     "cap:ios": "npm run cap:sync && cap open ios",
     "cap:android": "npm run cap:sync && cap open android",
-    "deploy": "npm run build && npm --prefix functions run build && firebase deploy"
+    "deploy": "npm run build && firebase deploy --only hosting,firestore"
   },
   "dependencies": {
     "@capacitor/core": "^8.5.2",

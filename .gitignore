@@ -1,7 +1,5 @@
 node_modules/
 dist/
-functions/lib/
-functions/node_modules/
 .env
 .env.local
 .firebase/
@@ -11,5 +9,4 @@ ui-debug.log
 ios/
 android/
 emulator-data/
-functions/.env.local
 *.tsbuildinfo

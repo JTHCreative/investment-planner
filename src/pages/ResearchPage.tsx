@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { SERIES_COLORS, ValueLineChart } from '../components/Charts';
 import { StatGrid } from '../components/Analysis';
 import { SymbolSearch, typeLabel } from '../components/SymbolSearch';
 import { moneyCompact, moneyExact, pct } from '../lib/format';
 import { useHistories, useQuotes } from '../lib/hooks';
+import { getDetails } from '../lib/market';
+import type { Details } from '../lib/providers/finnhub';
 import { toMonthly } from '../lib/sim/series';
 import { returnStats } from '../lib/sim/stats';
 
@@ -23,7 +25,28 @@ export function ResearchPage() {
   const quotes = useQuotes(sym ? [sym] : []);
   const histories = useHistories(sym ? [sym] : []);
   const [range, setRange] = useState(5);
-  const q = quotes.data[sym];
+  const [details, setDetails] = useState<Details>({});
+  useEffect(() => {
+    setDetails({});
+    if (!sym) return;
+    let cancelled = false;
+    getDetails(sym).then((d) => !cancelled && setDetails(d)).catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sym]);
+  const quote = quotes.data[sym];
+  // Stats from the details call fill any gaps in the quote (the mock provider puts them on the quote directly).
+  const q = quote && {
+    ...quote,
+    name: details.name ?? quote.name,
+    exchange: details.exchange ?? quote.exchange,
+    fiftyTwoWeekHigh: details.fiftyTwoWeekHigh ?? quote.fiftyTwoWeekHigh,
+    fiftyTwoWeekLow: details.fiftyTwoWeekLow ?? quote.fiftyTwoWeekLow,
+    dividendYield: details.dividendYield ?? quote.dividendYield,
+    marketCap: details.marketCap ?? quote.marketCap,
+    trailingPE: details.trailingPE ?? quote.trailingPE,
+  };
   const history = histories.data[0];
 
   const view = useMemo(() => {
@@ -33,7 +56,7 @@ export function ResearchPage() {
     const start = cutoff ? history.dates.findIndex((d) => d >= cutoff) : 0;
     const dates = history.dates.slice(start);
     const closes = history.closes.slice(start);
-    // Thin daily points so long ranges stay fast to draw.
+    // Thin dense (daily) data so long ranges stay fast to draw.
     const step = Math.max(1, Math.floor(dates.length / 600));
     const data = [];
     for (let i = 0; i < dates.length; i++) {
@@ -95,7 +118,7 @@ export function ResearchPage() {
             <>
               <ValueLineChart data={view.data} xKey="date" series={[{ key: 'close', label: 'Adjusted price', color: SERIES_COLORS[0] }]} />
               <p className="muted small">
-                Prices are adjusted for dividends and splits, so the chart shows total return. Stats cover {view.years.toFixed(1)} years from {view.from}.
+                Month-end prices, adjusted for dividends and splits, so the chart shows total return. Stats cover {view.years.toFixed(1)} years from {view.from}.
               </p>
               {view.stats.months >= 12 && <StatGrid stats={view.stats} />}
             </>

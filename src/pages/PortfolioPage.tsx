@@ -19,7 +19,7 @@ import { date, money, moneyExact, pct, shares } from '../lib/format';
 import { useHistories, usePortfolio, useQuotes } from '../lib/hooks';
 import { errorMessage, getQuotes } from '../lib/market';
 import { holdingsValue, planRebalance, totalValue, validateTargets } from '../lib/sim/rebalance';
-import { valueHistory } from '../lib/sim/valuation';
+import { isoDate, valueHistory } from '../lib/sim/valuation';
 import type { Portfolio, Quote, Revision, Target, Trade, Transaction } from '../lib/types';
 
 const TABS = [
@@ -87,7 +87,7 @@ export function PortfolioPage() {
       </nav>
 
       {tab === 'overview' && <Overview p={p} quotes={quotes.data} pricesReady={pricesReady} />}
-      {tab === 'plan' && <PlanTab p={p} quotes={quotes.data} />}
+      {tab === 'plan' && <PlanTab p={p} amount={pricesReady && value > 0 ? value : p.startingCash} />}
       {tab === 'backtest' && <AnalysisTab p={p} prices={prices} kind="backtest" />}
       {tab === 'projection' && <AnalysisTab p={p} prices={prices} kind="projection" />}
       {tab === 'activity' && <Activity p={p} />}
@@ -120,7 +120,7 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
         </div>
       ) : (
         <>
-          <PerformanceChart p={p} />
+          <PerformanceChart p={p} quotes={quotes} />
           <div className="table-wrap">
             <table className="table">
               <thead>
@@ -136,14 +136,17 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
               <tbody>
                 {rows.map(([symbol, h]) => {
                   const q = quotes[symbol];
+                  const target = p.targets.find((t) => t.symbol === symbol);
+                  // Live quotes may not carry a name; the plan remembers the one picked in search.
+                  const name = q?.name && q.name !== symbol ? q.name : target?.name;
                   const v = h.shares * (q?.price ?? NaN);
                   const gain = v - h.costBasis;
                   return (
                     <tr key={symbol}>
                       <td>
                         <Link to={`/research/${encodeURIComponent(symbol)}`}><strong>{symbol}</strong></Link>{' '}
-                        <span className="tag">{typeLabel(q?.type)}</span>
-                        <div className="muted small truncate">{q?.name}</div>
+                        <span className="tag">{typeLabel(q?.type || target?.type)}</span>
+                        <div className="muted small truncate">{name}</div>
                       </td>
                       <td className="num">{shares(h.shares)}</td>
                       <td className="num">
@@ -177,7 +180,7 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
   );
 }
 
-function PerformanceChart({ p }: { p: Portfolio }) {
+function PerformanceChart({ p, quotes }: { p: Portfolio; quotes: Record<string, Quote> }) {
   const user = useUser();
   const [txs, setTxs] = useState<Transaction[]>([]);
   useEffect(() => watchTransactions(user.uid, p.id, setTxs), [user.uid, p.id]);
@@ -185,16 +188,24 @@ function PerformanceChart({ p }: { p: Portfolio }) {
   const histories = useHistories(traded);
   const points = useMemo(() => {
     if (!histories.data.length) return [];
-    const bySymbol = Object.fromEntries(histories.data.map((h) => [h.symbol, h]));
-    return valueHistory(txs, bySymbol, 0);
-  }, [txs, histories.data]);
+    // History is month-end only, so add today's live price as the newest point.
+    const today = isoDate(Date.now());
+    const bySymbol = Object.fromEntries(
+      histories.data.map((h) => {
+        const live = quotes[h.symbol]?.price;
+        const last = h.dates[h.dates.length - 1];
+        return [h.symbol, live && last < today ? { ...h, dates: [...h.dates, today], closes: [...h.closes, live] } : h];
+      }),
+    );
+    return valueHistory(txs, bySymbol, 0, today);
+  }, [txs, histories.data, quotes]);
 
   if (histories.loading) return <p className="muted">Loading performance…</p>;
   if (points.length < 2) {
     return (
       <div className="card">
         <h3>Value since opened</h3>
-        <p className="muted small">The chart starts filling in after the next market close.</p>
+        <p className="muted small">The chart fills in as prices change.</p>
       </div>
     );
   }
@@ -283,7 +294,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
   );
 }
 
-function PlanTab({ p, quotes }: { p: Portfolio; quotes: Record<string, Quote> }) {
+function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
   const user = useUser();
   const [draft, setDraft] = useState<Target[]>(p.targets);
   const [note, setNote] = useState('');
@@ -339,7 +350,7 @@ function PlanTab({ p, quotes }: { p: Portfolio; quotes: Record<string, Quote> })
         <p className="muted small">
           Decide what share of the money goes where. You can change this any time; each saved version is kept under Activity.
         </p>
-        <AllocationEditor targets={draft} onChange={(t) => { setDraft(t); setTrades(null); }} />
+        <AllocationEditor targets={draft} amount={amount} onChange={(t) => { setDraft(t); setTrades(null); }} />
         <label>
           Note for this version (optional)
           <input maxLength={200} value={note} placeholder="e.g. More bonds after reading about sequence risk" onChange={(e) => setNote(e.target.value)} />
@@ -372,7 +383,7 @@ function PlanTab({ p, quotes }: { p: Portfolio; quotes: Record<string, Quote> })
                     {trades.map((t) => (
                       <tr key={t.symbol + t.side}>
                         <td className={t.side === 'buy' ? 'gain' : 'loss'}>{t.side === 'buy' ? 'Buy' : 'Sell'}</td>
-                        <td><strong>{t.symbol}</strong> <span className="muted small">{quotes[t.symbol]?.name}</span></td>
+                        <td><strong>{t.symbol}</strong> <span className="muted small">{draft.find((d) => d.symbol === t.symbol)?.name ?? ''}</span></td>
                         <td className="num">{shares(t.shares)}</td>
                         <td className="num">{moneyExact(t.price)}</td>
                         <td className="num">{money(t.amount)}</td>

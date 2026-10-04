@@ -1,8 +1,8 @@
-import type { History, MarketProvider, Quote, SearchResult } from '../types.js';
+import type { PriceSeries, Quote, SearchResult } from '../types';
 
 /**
  * Made-up but realistic-looking market data for offline development and tests.
- * Enable with MARKET_PROVIDER=mock. Never use it to make real decisions.
+ * Enable with VITE_MARKET_PROVIDER=mock. Never use it to make real decisions.
  */
 interface MockAsset {
   name: string;
@@ -60,7 +60,7 @@ function assetFor(symbol: string): MockAsset {
 }
 
 /** Business days from `start` to today, with a shared "market" shock so assets are correlated. */
-function generate(symbol: string): History {
+function generate(symbol: string): PriceSeries {
   const a = assetFor(symbol);
   const market = rng(12345);
   const own = rng(hash(symbol));
@@ -87,8 +87,8 @@ function generate(symbol: string): History {
   return { symbol, dates, closes };
 }
 
-export const mockProvider: MarketProvider = {
-  async search(query) {
+export const mockProvider = {
+  async search(query: string): Promise<SearchResult[]> {
     const q = query.trim().toUpperCase();
     return Object.entries(ASSETS)
       .filter(([symbol, a]) => symbol.includes(q) || a.name.toUpperCase().includes(q))
@@ -96,7 +96,7 @@ export const mockProvider: MarketProvider = {
       .map(([symbol, a]): SearchResult => ({ symbol, name: a.name, type: a.type, exchange: 'MOCK' }));
   },
 
-  async quotes(symbols) {
+  async quotes(symbols: string[]): Promise<Quote[]> {
     return symbols.map((symbol): Quote => {
       const a = assetFor(symbol);
       const h = generate(symbol);
@@ -122,7 +122,7 @@ export const mockProvider: MarketProvider = {
     });
   },
 
-  async history(symbol) {
+  async history(symbol: string): Promise<PriceSeries> {
     return generate(symbol);
   },
 };

@@ -7,11 +7,13 @@ import {
   orderBy,
   query,
   runTransaction,
+  setDoc,
   updateDoc,
   writeBatch,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { applyTrades } from './sim/rebalance';
+import type { ApiKeys } from './market';
 import type { Portfolio, Revision, Target, Trade, Transaction } from './types';
 
 const portfoliosCol = (uid: string) => collection(db, 'users', uid, 'portfolios');
@@ -151,3 +153,12 @@ export async function deletePortfolio(uid: string, pid: string) {
   await deleteDoc(portfolioDoc(uid, pid));
 }
 
+
+/** Per-user settings live on the user's own document: users/{uid}. */
+export function watchApiKeys(uid: string, cb: (keys: Partial<ApiKeys>) => void, onError: (e: Error) => void): Unsubscribe {
+  return onSnapshot(doc(db, 'users', uid), (snap) => cb((snap.data()?.apiKeys as Partial<ApiKeys>) ?? {}), onError);
+}
+
+export async function saveApiKeys(uid: string, keys: ApiKeys) {
+  await setDoc(doc(db, 'users', uid), { apiKeys: { finnhub: keys.finnhub.trim(), alphaVantage: keys.alphaVantage.trim() } }, { merge: true });
+}
