@@ -1,6 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
+import { DuplicateButton } from '../components/DuplicateDialog';
 import { createPortfolio } from '../lib/db';
 import { money, pct } from '../lib/format';
 import { usePortfolios, useQuotes } from '../lib/hooks';
@@ -18,7 +19,7 @@ export function PortfoliosPage() {
 
   return (
     <div className="stack">
-      <div className="row spread">
+      <div className="row spread wrap">
         <h1>Your portfolios</h1>
         <div className="row gap-sm">
           {portfolios.data.length > 1 && <Link className="button" to="/compare">Compare</Link>}
@@ -42,8 +43,9 @@ export function PortfoliosPage() {
           const value = totalValue(p, prices);
           const gain = value / p.startingCash - 1;
           return (
-            <Link key={p.id} to={`/p/${p.id}`} className="card portfolio-card">
-              <h2>{p.name}</h2>
+            <div key={p.id} className="card portfolio-card">
+              {/* The title link stretches over the whole card; the Duplicate button sits above it. */}
+              <h2><Link to={`/p/${p.id}`} className="stretched-link">{p.name}</Link></h2>
               {p.description && <p className="muted small truncate">{p.description}</p>}
               <div className="headline-value">{pending ? '…' : money(value)}</div>
               <div className={`small ${gain >= 0 ? 'gain' : 'loss'}`}>
@@ -54,7 +56,8 @@ export function PortfoliosPage() {
                   ? p.targets.map((t) => `${t.symbol} ${pct(t.weight, 0)}`).join(' · ')
                   : 'No plan yet'}
               </div>
-            </Link>
+              <DuplicateButton portfolio={p} className="small card-action" />
+            </div>
           );
         })}
       </div>

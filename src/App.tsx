@@ -1,6 +1,6 @@
 import { signOut } from 'firebase/auth';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { auth } from './firebase';
 import { ComparePage } from './pages/ComparePage';
@@ -61,7 +61,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
         {cacheProblem && <div className="card notice">{cacheProblem}</div>}
         <Routes>
           <Route path="/" element={<PortfoliosPage />} />
-          <Route path="/p/:id" element={<PortfolioPage />} />
+          <Route path="/p/:id" element={<PortfolioRoute />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/research" element={<ResearchPage />} />
           <Route path="/research/:symbol" element={<ResearchPage />} />
@@ -74,6 +74,12 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
       </footer>
     </>
   );
+}
+
+/** A fresh page per portfolio, so moving from one portfolio to another (e.g. to a new copy) never carries over unsaved edits. */
+function PortfolioRoute() {
+  const { id } = useParams();
+  return <PortfolioPage key={id} />;
 }
 
 export default function App() {

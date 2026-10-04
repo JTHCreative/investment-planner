@@ -2,12 +2,12 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { AllocationEditor } from '../components/AllocationEditor';
+import { DuplicateButton } from '../components/DuplicateDialog';
 import { BacktestPanel, ProjectionPanel } from '../components/Analysis';
 import { SERIES_COLORS, ValueLineChart } from '../components/Charts';
 import { typeLabel } from '../components/SymbolSearch';
 import {
   deletePortfolio,
-  duplicatePortfolio,
   executeTrades,
   moveCash,
   saveTargets,
@@ -62,6 +62,7 @@ export function PortfolioPage() {
           {p.description && <p className="muted">{p.description}</p>}
         </div>
         <div className="headline">
+          <DuplicateButton portfolio={p} className="small header-action" />
           <div className="headline-value">{pricesReady ? money(value) : '…'}</div>
           {pricesReady && (
             <div className={value >= p.startingCash ? 'gain' : 'loss'}>
@@ -265,16 +266,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
           </button>
         </div>
         <div className="row gap-sm wrap">
-          <button
-            onClick={() =>
-              run(async () => {
-                const id = await duplicatePortfolio(user.uid, p);
-                navigate(`/p/${id}?tab=plan`);
-              })
-            }
-          >
-            Copy as new portfolio
-          </button>
+          <DuplicateButton portfolio={p} />
           <button
             className="danger"
             onClick={() =>

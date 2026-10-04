@@ -161,8 +161,33 @@ footer {
   padding: 16px;
   min-width: 0;
 }
-a.card { color: inherit; display: flex; flex-direction: column; gap: 6px; }
-a.card:hover { text-decoration: none; border-color: var(--accent); }
+.portfolio-card { position: relative; display: flex; flex-direction: column; gap: 6px; }
+.portfolio-card:hover { border-color: var(--accent); }
+.portfolio-card h2 a { color: inherit; }
+.stretched-link::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius); }
+.stretched-link:hover { text-decoration: none; }
+.card-action { position: absolute; top: 12px; right: 12px; z-index: 1; padding: 4px 10px; }
+.portfolio-card h2 { padding-right: 96px; }
+.header-action { padding: 4px 10px; margin-bottom: 6px; }
+
+.dialog {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  color: var(--text);
+  padding: 20px;
+  width: min(480px, calc(100vw - 32px));
+  box-shadow: 0 16px 48px rgb(0 0 0 / 0.3);
+}
+.dialog::backdrop { background: rgb(0 0 0 / 0.45); }
+.dialog input[type='text'], .dialog label > input:not([type]) { width: 100%; }
+.choices { border: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 8px; }
+.choices legend { padding: 0; margin-bottom: 6px; }
+.choice { flex-direction: row; align-items: flex-start; gap: 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); cursor: pointer; }
+.choice:has(input:checked) { border-color: var(--accent); }
+.choice > span { display: flex; flex-direction: column; gap: 2px; }
+.choice input { margin-top: 3px; }
+.choice.disabled { opacity: 0.55; cursor: default; }
 
 /* Controls */
 button, .button {
@@ -318,3 +343,4 @@ details[open] > summary { margin-bottom: 12px; }
 }
 /* Let the name column absorb the squeeze (and truncate) instead of widening the table. */
 .alloc-table td:first-child { width: 100%; max-width: 0; }
+.choice input[type='radio'] { width: 16px; height: 16px; accent-color: var(--accent); flex: none; }
