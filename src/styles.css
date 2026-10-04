@@ -63,6 +63,8 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
 .nav a, .nav-link { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: var(--radius-control); color: var(--text-muted); text-decoration: none; font-size: 14px; background: none; border: 0; cursor: pointer; }
 .nav a:hover, .nav-link:hover { background: var(--surface-2); color: var(--text); }
 .nav a.active { background: var(--surface-2); color: var(--text); }
+.nav a .icon { flex: none; transition: color 0.15s; }
+.nav a.active .icon { color: var(--line); }
 .user { display: flex; align-items: center; gap: 12px; }
 .user-email { font-size: 14px; color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-link.signout { color: var(--text); padding: 0 12px; }
