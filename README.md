@@ -80,23 +80,30 @@ npm test              # simulation unit tests
 npm run typecheck
 ```
 
-## Deploying to your Firebase project
+## Deploying the Firebase backend
 
-1. Create a project at https://console.firebase.google.com.
-2. Turn on **Authentication** → Email/Password (and Google if you want it on the web).
-3. Create a **Firestore** database (production mode).
-4. Upgrade to the **Blaze (pay-as-you-go)** plan. Cloud Functions need it to make outbound calls to Yahoo. Personal use
-   normally stays within the free allowance.
-5. Add a **Web app** in Project settings and copy its config into `.env.local` (see `.env.example`).
-6. Point the CLI at your project and deploy:
+The app is wired to the Firebase project **investment-planner-40f1d** (web config in `src/firebase.ts`, CLI project in
+`.firebaserc`). The web config is public by design: it ships to every browser. What protects your data is
+`firestore.rules`. One-time setup in the [Firebase console](https://console.firebase.google.com/project/investment-planner-40f1d):
+
+1. **Authentication** → Get started → enable **Email/Password** (and **Google** if you want it on the web).
+2. **Firestore Database** → Create database (production mode; pick a location near you).
+3. Upgrade to the **Blaze (pay-as-you-go)** plan. Cloud Functions need it to make outbound calls to Yahoo. Personal use
+   normally stays within the free allowance; setting a budget alert is a good idea.
+4. From your computer, deploy the functions and security rules:
 
 ```bash
+npm i -g firebase-tools
 firebase login
-firebase use --add          # pick your project
-npm run deploy              # builds, then deploys hosting, functions and Firestore rules
+npm ci && npm --prefix functions ci
+firebase deploy --only functions,firestore
 ```
 
-The web app is then live at `https://<project-id>.web.app`.
+`npm run deploy` also publishes the site to Firebase Hosting at `https://investment-planner-40f1d.web.app`, as an
+alternative or in addition to GitHub Pages.
+
+To use a different Firebase project, set the `VITE_FIREBASE_*` values in `.env.local` (see `.env.example`) and run
+`firebase use --add`.
 
 ## Hosting the web app on GitHub Pages
 
@@ -104,20 +111,13 @@ The web app is then live at `https://<project-id>.web.app`.
 `https://<owner>.github.io/<repo>/` on every push to `main` (or on demand from the Actions tab).
 `.github/workflows/ci.yml` runs the tests and both builds on pull requests and other branches.
 
-GitHub Pages only hosts the website itself. Sign-in, the database and market data still come from Firebase, so do the
-Firebase steps above first (at minimum `firebase deploy --only functions,firestore`). One-time setup:
+GitHub Pages only hosts the website itself. Sign-in, the database and market data come from Firebase, so do the
+backend steps above too. One-time setup:
 
 1. **Turn on Pages:** repo **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-2. **Give the build your Firebase config:** repo **Settings → Secrets and variables → Actions → Variables** tab, and add
-   `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, `VITE_FIREBASE_PROJECT_ID`, `VITE_FIREBASE_STORAGE_BUCKET`,
-   `VITE_FIREBASE_MESSAGING_SENDER_ID`, `VITE_FIREBASE_APP_ID` (and `VITE_FUNCTIONS_REGION` if not `us-central1`).
-   These are variables rather than secrets because Firebase web config is public by design: it ships to every
-   browser. What protects your data is the Firestore rules.
-3. **Allow sign-in from Pages:** Firebase console → **Authentication → Settings → Authorized domains → Add domain** →
+2. **Allow sign-in from Pages:** Firebase console → **Authentication → Settings → Authorized domains → Add domain** →
    `<owner>.github.io`.
-4. Push to `main`. The workflow run shows the live URL when it finishes.
-
-Without step 2 the site still deploys, but it shows a "Firebase isn't configured yet" screen.
+3. Push to `main`. The workflow run shows the live URL when it finishes.
 
 ## Phone apps
 

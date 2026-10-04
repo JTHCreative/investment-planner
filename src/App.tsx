@@ -1,7 +1,7 @@
 import { signOut } from 'firebase/auth';
 import { BrowserRouter, NavLink, Navigate, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
-import { auth, firebaseConfigured } from './firebase';
+import { auth } from './firebase';
 import { ComparePage } from './pages/ComparePage';
 import { LoginPage } from './pages/LoginPage';
 import { PortfolioPage } from './pages/PortfolioPage';
@@ -10,19 +10,6 @@ import { ResearchPage } from './pages/ResearchPage';
 
 function Shell() {
   const { user, loading } = useAuth();
-  if (!firebaseConfigured) {
-    return (
-      <div className="login">
-        <div className="card login-card">
-          <h1>Almost there</h1>
-          <p>
-            Firebase isn’t configured yet. Copy <code>.env.example</code> to <code>.env.local</code> and fill in your
-            project’s web config, or set <code>VITE_USE_EMULATORS=true</code> to run against the local emulators. See the README.
-          </p>
-        </div>
-      </div>
-    );
-  }
   if (loading) return <div className="login muted">Loading…</div>;
   if (!user) return <LoginPage />;
 

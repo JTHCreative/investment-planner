@@ -1,5 +1,6 @@
 {
   "projects": {
-    "default": "demo-investment-planner"
+    "default": "investment-planner-40f1d",
+    "demo": "demo-investment-planner"
   }
 }

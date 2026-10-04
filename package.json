@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "test": "vitest run",
     "typecheck": "tsc -b",
-    "emulators": "npm --prefix functions run build && firebase emulators:start",
+    "emulators": "npm --prefix functions run build && firebase emulators:start --project demo-investment-planner",
     "cap:sync": "npm run build && cap sync",
     "cap:ios": "npm run cap:sync && cap open ios",
     "cap:android": "npm run cap:sync && cap open android",
