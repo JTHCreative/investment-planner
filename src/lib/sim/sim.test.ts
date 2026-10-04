@@ -163,4 +163,20 @@ describe('valuation', () => {
     );
     expect(points.map((p) => p.value)).toEqual([100, 105, 110]);
   });
+
+  it('uses the fill price when monthly history has no point on the trade day', () => {
+    const series = { A: { symbol: 'A', dates: ['2024-01-31', '2024-02-29', '2024-03-15'], closes: [8, 12, 15] } };
+    const points = valueHistory(
+      [{ id: '1', type: 'buy', symbol: 'A', shares: 10, price: 10, amount: 100, at: Date.parse('2024-02-10T15:00:00Z') }],
+      series,
+      100,
+      '2024-03-15',
+    );
+    // Opening day: still worth what was paid, even though January's close was lower.
+    expect(points.map((p) => [p.date, p.value])).toEqual([
+      ['2024-02-10', 100],
+      ['2024-02-29', 120],
+      ['2024-03-15', 150],
+    ]);
+  });
 });

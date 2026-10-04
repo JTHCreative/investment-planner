@@ -36,8 +36,10 @@ jobs:
         env:
           # Served from https://<owner>.github.io/<repo>/
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
-          # Firebase web config is built into src/firebase.ts; only the functions region is configurable here.
-          VITE_FUNCTIONS_REGION: ${{ vars.VITE_FUNCTIONS_REGION || 'us-central1' }}
+          # Optional: shared market data keys for everyone using the site (Settings → Secrets → Actions).
+          # Without them, each user pastes their own free keys in the app's Settings page.
+          VITE_FINNHUB_API_KEY: ${{ secrets.VITE_FINNHUB_API_KEY }}
+          VITE_ALPHA_VANTAGE_API_KEY: ${{ secrets.VITE_ALPHA_VANTAGE_API_KEY }}
 
       # GitHub Pages has no rewrite rules, so serve the app for unknown paths too.
       # Without this, refreshing /investment-planner/p/abc would show GitHub's 404 page.

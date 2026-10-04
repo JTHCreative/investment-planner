@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, useSyncExternalStore } from 'react';
 import { watchPortfolio, watchPortfolios } from './db';
-import { errorMessage, getHistories, getQuotes } from './market';
+import { errorMessage, getHistories, getQuotes, marketVersion, subscribeMarket } from './market';
 import { alignMonthlyReturns, type AlignedReturns } from './sim/series';
 import type { Portfolio, PriceSeries, Quote } from './types';
 
@@ -39,13 +39,17 @@ export function usePortfolio(uid: string, pid: string): Loadable<Portfolio | nul
   return state;
 }
 
-/** Stable key so effects only re-run when the set of symbols actually changes. */
-function symbolsKey(symbols: string[]): string {
-  return [...new Set(symbols)].sort().join(',');
+/** Stable key so effects only re-run when the set of symbols (or the API keys) actually change. */
+function useSymbolsKey(symbols: string[]): string {
+  const v = useSyncExternalStore(subscribeMarket, marketVersion);
+  const key = [...new Set(symbols)].sort().join(',');
+  return key ? `${v}|${key}` : '';
 }
 
+const symbolsOf = (key: string) => key.split('|')[1].split(',');
+
 export function useQuotes(symbols: string[], refreshMs = 60_000): Loadable<Record<string, Quote>> & { refresh: () => void } {
-  const key = symbolsKey(symbols);
+  const key = useSymbolsKey(symbols);
   const [tick, setTick] = useState(0);
   const [state, setState] = useState<Loadable<Record<string, Quote>>>({ data: {}, loading: false, error: '' });
 
@@ -56,7 +60,7 @@ export function useQuotes(symbols: string[], refreshMs = 60_000): Loadable<Recor
     }
     let cancelled = false;
     setState((s) => ({ ...s, loading: true }));
-    getQuotes(key.split(','))
+    getQuotes(symbolsOf(key))
       .then((data) => !cancelled && setState({ data, loading: false, error: '' }))
       .catch((e) => !cancelled && setState((s) => ({ ...s, loading: false, error: errorMessage(e) })));
     const timer = refreshMs ? setTimeout(() => setTick((t) => t + 1), refreshMs) : undefined;
@@ -70,7 +74,7 @@ export function useQuotes(symbols: string[], refreshMs = 60_000): Loadable<Recor
 }
 
 export function useHistories(symbols: string[]): Loadable<PriceSeries[]> {
-  const key = symbolsKey(symbols);
+  const key = useSymbolsKey(symbols);
   const [state, setState] = useState<Loadable<PriceSeries[]>>({ data: [], loading: false, error: '' });
   useEffect(() => {
     if (!key) {
@@ -79,7 +83,7 @@ export function useHistories(symbols: string[]): Loadable<PriceSeries[]> {
     }
     let cancelled = false;
     setState((s) => ({ ...s, loading: true, error: '' }));
-    getHistories(key.split(','))
+    getHistories(symbolsOf(key))
       .then((data) => !cancelled && setState({ data, loading: false, error: '' }))
       .catch((e) => !cancelled && setState({ data: [], loading: false, error: errorMessage(e) }));
     return () => {

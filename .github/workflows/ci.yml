@@ -18,17 +18,7 @@ jobs:
         with:
           node-version: 22
           cache: npm
-          cache-dependency-path: |
-            package-lock.json
-            functions/package-lock.json
 
-      - name: Web app
-        run: |
-          npm ci
-          npm test
-          npm run build
-
-      - name: Cloud Functions
-        run: |
-          npm ci --prefix functions
-          npm run build --prefix functions
+      - run: npm ci
+      - run: npm test
+      - run: npm run build

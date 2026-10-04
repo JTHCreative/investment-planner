@@ -1,5 +1,4 @@
 import type { PriceSeries, Transaction } from '../types';
-import { closeOnOrBefore } from './series';
 
 export interface ValuePoint {
   date: string;
@@ -12,11 +11,12 @@ export function isoDate(ms: number): string {
 }
 
 /**
- * Rebuild a portfolio's daily value from its transaction log and price history.
+ * Rebuild a portfolio's value over time from its transaction log and price history.
  * Used to chart how a simulated account has actually done since it was opened.
  *
- * Prices are adjusted closes, so a holding's value is scaled by (adjusted close today / adjusted close on the trade day)
+ * Prices are adjusted closes, so a holding's value is scaled by (adjusted close now / reference price at the trade)
  * rather than shares × adjusted close. That keeps dividends in the growth without mis-pricing the original purchase.
+ * Works with daily or monthly history; append today's live price as the last point to bring it up to date.
  */
 export function valueHistory(
   transactions: Transaction[],
@@ -34,11 +34,19 @@ export function valueHistory(
   const calendar = [...days].sort();
   if (!calendar.length || calendar[0] > firstDay) calendar.unshift(firstDay);
 
-  // Each lot remembers its value at trade time and the adjusted close it was bought at.
-  const lots = new Map<string, { dollarsAtRef: number; refClose: number }>();
+  // Each lot remembers its value at a reference point: the trade, or the last history point used to revalue it.
+  const lots = new Map<string, { dollars: number; refClose: number; refDay: string }>();
   let cash = startingCash;
   let txIndex = 0;
   const points: ValuePoint[] = [];
+
+  /** The lot's value on `day`. Only moves once the history has a point after the lot's reference day. */
+  function lotValue(symbol: string, lot: { dollars: number; refClose: number; refDay: string }, day: string): number {
+    const s = series[symbol];
+    const i = lastIndexOnOrBefore(s, day);
+    if (i < 0 || s.dates[i] <= lot.refDay) return lot.dollars;
+    return (lot.dollars * s.closes[i]) / lot.refClose;
+  }
 
   for (const day of calendar) {
     while (txIndex < txs.length && isoDate(txs[txIndex].at) <= day) {
@@ -46,20 +54,38 @@ export function valueHistory(
       if (tx.type === 'deposit') cash += tx.amount;
       else if (tx.type === 'withdrawal') cash -= tx.amount;
       else if (tx.symbol && series[tx.symbol]) {
-        const ref = closeOnOrBefore(series[tx.symbol], day) ?? tx.price ?? 1;
+        const s = series[tx.symbol];
+        const tradeDay = isoDate(tx.at);
         const lot = lots.get(tx.symbol);
-        const current = lot ? (lot.dollarsAtRef * ref) / lot.refClose : 0;
+        const current = lot ? lotValue(tx.symbol, lot, tradeDay) : 0;
         const next = tx.type === 'buy' ? current + tx.amount : Math.max(0, current - tx.amount);
-        lots.set(tx.symbol, { dollarsAtRef: next, refClose: ref });
+        // Reference price: the history's close on the trade day when it has one (daily data). With monthly data
+        // the trade usually falls between points, so the actual fill price is the better reference.
+        const i = lastIndexOnOrBefore(s, tradeDay);
+        const ref = i >= 0 && s.dates[i] === tradeDay ? s.closes[i] : tx.price ?? s.closes[Math.max(0, i)];
+        lots.set(tx.symbol, { dollars: next, refClose: ref, refDay: tradeDay });
         cash += tx.type === 'buy' ? -tx.amount : tx.amount;
       }
     }
     let value = cash;
-    for (const [symbol, lot] of lots) {
-      const close = closeOnOrBefore(series[symbol], day) ?? lot.refClose;
-      value += (lot.dollarsAtRef * close) / lot.refClose;
-    }
+    for (const [symbol, lot] of lots) value += lotValue(symbol, lot, day);
     points.push({ date: day, value, cash });
   }
   return points;
+}
+
+function lastIndexOnOrBefore(s: PriceSeries, date: string): number {
+  let lo = 0;
+  let hi = s.dates.length - 1;
+  let found = -1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (s.dates[mid] <= date) {
+      found = mid;
+      lo = mid + 1;
+    } else {
+      hi = mid - 1;
+    }
+  }
+  return found;
 }

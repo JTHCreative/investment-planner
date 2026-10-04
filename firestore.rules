@@ -30,12 +30,25 @@ service cloud.firestore {
       }
     }
 
-    // Market data cache. Only Cloud Functions (admin SDK) write here.
-    match /marketQuotes/{symbol} {
-      allow read: if signedIn();
+    // The user's own settings (market data API keys).
+    match /users/{uid} {
+      allow read, write: if isOwner(uid);
     }
+
+    // Shared price-history cache, filled by the app in each user's browser so a symbol is downloaded once for everyone.
+    // Writes must look like a price series; there is no server to vouch for the numbers themselves.
     match /marketHistory/{symbol} {
       allow read: if signedIn();
+      allow create, update: if signedIn()
+        && request.resource.data.keys().hasOnly(['symbol', 'dates', 'closes', 'fetchedAt'])
+        && request.resource.data.symbol == symbol
+        && request.resource.data.dates is list
+        && request.resource.data.closes is list
+        && request.resource.data.dates.size() == request.resource.data.closes.size()
+        && request.resource.data.dates.size() > 0
+        && request.resource.data.dates.size() <= 12000
+        && request.resource.data.fetchedAt is number
+        && request.resource.data.fetchedAt <= request.time.toMillis() + 60000;
     }
   }
 }
