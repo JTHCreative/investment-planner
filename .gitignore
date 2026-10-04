@@ -1,0 +1,15 @@
+node_modules/
+dist/
+functions/lib/
+functions/node_modules/
+.env
+.env.local
+.firebase/
+*.log
+firebase-debug.*.log
+ui-debug.log
+ios/
+android/
+emulator-data/
+functions/.env.local
+*.tsbuildinfo
