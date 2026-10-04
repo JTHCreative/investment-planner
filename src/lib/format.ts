@@ -25,3 +25,14 @@ export function monthLabel(m: string): string {
   const [y, mo] = m.split('-');
   return new Date(Number(y), Number(mo) - 1).toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
+
+/** "+$1,234.56" / "−$1,234.56" (true minus sign), for gains and losses. */
+export function signedMoney(n: number): string {
+  if (!Number.isFinite(n)) return '—';
+  return (n < 0 ? '−' : '+') + usd2.format(Math.abs(n));
+}
+
+/** Percent with a true minus sign, e.g. "−3.12%". */
+export function pctSigned(n: number | undefined, digits = 1): string {
+  return pct(n, digits, true).replace('-', '−');
+}

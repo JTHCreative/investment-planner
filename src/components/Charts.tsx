@@ -1,10 +1,12 @@
+import { useId, type ReactNode } from 'react';
 import {
   Area,
+  AreaChart,
   CartesianGrid,
   ComposedChart,
-  Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -14,26 +16,125 @@ import { money, moneyCompact } from '../lib/format';
 import type { ProjectionPoint } from '../lib/sim/simulate';
 
 const axisProps = {
-  stroke: 'var(--axis)',
+  stroke: 'var(--grid)',
   tick: { fill: 'var(--text-muted)', fontSize: 12 },
   tickLine: false,
 };
 
-const tooltipStyle = {
-  contentStyle: {
-    background: 'var(--surface-raised)',
-    border: '1px solid var(--border)',
-    borderRadius: 8,
-    color: 'var(--text)',
-    fontSize: 13,
-  },
-  labelStyle: { color: 'var(--text-muted)' },
-};
+const grid = <CartesianGrid stroke="var(--grid)" strokeDasharray="2 4" vertical={false} />;
 
-// Legend text stays in the muted ink; the swatch beside it carries the series color.
-const legendText = (value: string) => <span style={{ color: 'var(--text-muted)' }}>{value}</span>;
+/** Six Lunar chart colors, in an order where neighbours stay distinguishable. Index by series position; past six they repeat. */
+export const SERIES_COLORS = [
+  'var(--series-1)',
+  'var(--series-2)',
+  'var(--series-3)',
+  'var(--series-4)',
+  'var(--series-5)',
+  'var(--series-6)',
+];
 
-export const SERIES_COLORS = ['var(--series-1)', 'var(--series-2)', 'var(--series-3)', 'var(--series-4)'];
+function ChartTooltip({ label, rows }: { label: ReactNode; rows: [string, string, string?][] }) {
+  return (
+    <div className="tooltip">
+      <div className="muted xsmall">{label}</div>
+      {rows.map(([name, value, color]) => (
+        <div key={name} className="row" style={{ gap: 8 }}>
+          {color && <span className="swatch" style={{ background: color }} />}
+          <span className="muted">{name}</span>
+          <span className="num-font" style={{ marginLeft: 'auto' }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export interface LegendItem {
+  label: string;
+  color: string;
+  kind?: 'line' | 'dash' | 'block';
+}
+
+/** Plain legend under a chart: text stays in muted ink, the mark beside it carries the color. */
+export function ChartLegend({ items }: { items: LegendItem[] }) {
+  return (
+    <div className="legend">
+      {items.map((i) => (
+        <span key={i.label}>
+          {i.kind === 'dash' ? (
+            <span className="dash" style={{ color: i.color }} />
+          ) : (
+            <span className={i.kind === 'block' ? 'blk' : 'ln'} style={{ background: i.color }} />
+          )}
+          {i.label}
+        </span>
+      ))}
+    </div>
+  );
+}
+
+/** One dollar series over time, with a soft fill underneath and an optional dashed reference (e.g. starting cash). */
+export function AreaValueChart({
+  data,
+  xKey,
+  valueKey,
+  label,
+  baseline,
+  baselineLabel,
+  height = 268,
+}: {
+  data: Record<string, number | string>[];
+  xKey: string;
+  valueKey: string;
+  label: string;
+  baseline?: number;
+  baselineLabel?: string;
+  height?: number;
+}) {
+  const id = useId().replace(/:/g, '');
+  return (
+    <div className="chart" style={{ height }}>
+      <ResponsiveContainer>
+        <AreaChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+          <defs>
+            <linearGradient id={`fill${id}`} x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0" stopColor="#135CC5" stopOpacity={0.35} />
+              <stop offset="1" stopColor="#135CC5" stopOpacity={0} />
+            </linearGradient>
+          </defs>
+          {grid}
+          <XAxis dataKey={xKey} {...axisProps} minTickGap={48} />
+          <YAxis {...axisProps} axisLine={false} tickFormatter={moneyCompact} width={60} domain={['auto', 'auto']} />
+          <Tooltip
+            cursor={{ stroke: 'var(--text-faint)', strokeDasharray: '3 3' }}
+            content={({ active, payload, label: l }) =>
+              active && payload?.length ? (
+                <ChartTooltip
+                  label={l}
+                  rows={[
+                    [label, money(Number(payload[0].value)), 'var(--line)'],
+                    ...(baseline !== undefined && baselineLabel ? [[baselineLabel, money(baseline)] as [string, string]] : []),
+                  ]}
+                />
+              ) : null
+            }
+          />
+          {baseline !== undefined && <ReferenceLine y={baseline} stroke="var(--text-faint)" strokeDasharray="5 4" />}
+          <Area
+            type="monotone"
+            dataKey={valueKey}
+            name={label}
+            stroke="var(--line)"
+            strokeWidth={2.5}
+            fill={`url(#fill${id})`}
+            dot={false}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)', fill: 'var(--line)' }}
+            isAnimationActive={false}
+          />
+        </AreaChart>
+      </ResponsiveContainer>
+    </div>
+  );
+}
 
 export interface LineSeries {
   key: string;
@@ -42,12 +143,12 @@ export interface LineSeries {
   dashed?: boolean;
 }
 
-/** One or more dollar-valued lines over time, sharing a single axis. */
+/** Several dollar-valued lines over time, sharing a single axis. Pair with ChartLegend. */
 export function ValueLineChart({
   data,
   series,
   xKey,
-  height = 280,
+  height = 308,
 }: {
   data: Record<string, number | string>[];
   series: LineSeries[];
@@ -57,12 +158,24 @@ export function ValueLineChart({
   return (
     <div className="chart" style={{ height }}>
       <ResponsiveContainer>
-        <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-          <CartesianGrid stroke="var(--grid)" vertical={false} />
-          <XAxis dataKey={xKey} {...axisProps} minTickGap={40} />
-          <YAxis {...axisProps} tickFormatter={moneyCompact} width={64} domain={['auto', 'auto']} axisLine={false} />
-          <Tooltip {...tooltipStyle} formatter={(v) => money(Number(v))} />
-          {series.length > 1 && <Legend wrapperStyle={{ fontSize: 13 }} formatter={legendText} />}
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+          {grid}
+          <XAxis dataKey={xKey} {...axisProps} minTickGap={48} />
+          <YAxis {...axisProps} axisLine={false} tickFormatter={moneyCompact} width={60} domain={[0, 'auto']} />
+          <Tooltip
+            cursor={{ stroke: 'var(--text-faint)', strokeDasharray: '3 3' }}
+            content={({ active, payload, label }) =>
+              active && payload?.length ? (
+                <ChartTooltip
+                  label={label}
+                  rows={series.map((s) => {
+                    const v = payload.find((x) => x.dataKey === s.key)?.value;
+                    return [s.label, v === undefined ? '—' : money(Number(v)), s.color] as [string, string, string];
+                  })}
+                />
+              ) : null
+            }
+          />
           {series.map((s) => (
             <Line
               key={s.key}
@@ -70,7 +183,7 @@ export function ValueLineChart({
               dataKey={s.key}
               name={s.label}
               stroke={s.color}
-              strokeWidth={2}
+              strokeWidth={s.dashed ? 1.5 : 2.5}
               strokeDasharray={s.dashed ? '5 4' : undefined}
               dot={false}
               activeDot={{ r: 4, strokeWidth: 2, stroke: 'var(--surface)' }}
@@ -83,57 +196,52 @@ export function ValueLineChart({
   );
 }
 
-/** Monte Carlo "fan": the middle line is the median outcome, bands hold the middle 50% and 80% of outcomes. */
-export function FanChart({ points, height = 320 }: { points: ProjectionPoint[]; height?: number }) {
+/** Monte Carlo "fan": the median line, with bands holding the middle 50% and 80% of outcomes. */
+export function FanChart({ points, height = 348 }: { points: ProjectionPoint[]; height?: number }) {
   const data = points.map((p) => ({
-    year: `Yr ${p.year}`,
+    ...p,
+    label: `Yr ${p.year}`,
     outer: [p.p10, p.p90],
     inner: [p.p25, p.p75],
-    p10: p.p10,
-    p25: p.p25,
-    p50: p.p50,
-    p75: p.p75,
-    p90: p.p90,
-    contributed: p.contributed,
   }));
   return (
     <div className="chart" style={{ height }}>
       <ResponsiveContainer>
-        <ComposedChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-          <CartesianGrid stroke="var(--grid)" vertical={false} />
-          <XAxis dataKey="year" {...axisProps} minTickGap={24} />
-          <YAxis {...axisProps} tickFormatter={moneyCompact} width={64} axisLine={false} />
+        <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 4 }}>
+          {grid}
+          <XAxis dataKey="label" {...axisProps} minTickGap={28} />
+          <YAxis {...axisProps} axisLine={false} tickFormatter={moneyCompact} width={60} />
           <Tooltip
-            {...tooltipStyle}
+            cursor={{ stroke: 'var(--text-faint)', strokeDasharray: '3 3' }}
             content={({ active, payload, label }) => {
-              const row = active && payload?.[0]?.payload;
+              const row = active && (payload?.[0]?.payload as ProjectionPoint | undefined);
               if (!row) return null;
               return (
-                <div className="tooltip">
-                  <div className="muted">{label}</div>
-                  <div>Optimistic (90th): <strong>{money(row.p90)}</strong></div>
-                  <div>Good (75th): {money(row.p75)}</div>
-                  <div>Median: <strong>{money(row.p50)}</strong></div>
-                  <div>Poor (25th): {money(row.p25)}</div>
-                  <div>Pessimistic (10th): <strong>{money(row.p10)}</strong></div>
-                  <div className="muted">Total put in: {money(row.contributed)}</div>
-                </div>
+                <ChartTooltip
+                  label={label}
+                  rows={[
+                    ['Optimistic (90th)', money(row.p90)],
+                    ['Good (75th)', money(row.p75)],
+                    ['Median', money(row.p50), 'var(--text)'],
+                    ['Poor (25th)', money(row.p25)],
+                    ['Pessimistic (10th)', money(row.p10)],
+                    ['Total put in', money(row.contributed)],
+                  ]}
+                />
               );
             }}
           />
-          <Area dataKey="outer" name="10th–90th percentile" stroke="none" fill="var(--band-outer)" isAnimationActive={false} />
-          <Area dataKey="inner" name="25th–75th percentile" stroke="none" fill="var(--band-inner)" isAnimationActive={false} />
-          <Line dataKey="p50" name="Median" stroke="var(--series-1)" strokeWidth={2} dot={false} isAnimationActive={false} />
+          <Area dataKey="outer" stroke="none" fill="var(--band-outer)" fillOpacity={1} isAnimationActive={false} />
+          <Area dataKey="inner" stroke="none" fill="var(--band-inner)" fillOpacity={1} isAnimationActive={false} />
+          <Line dataKey="contributed" stroke="var(--text-muted)" strokeWidth={1.5} strokeDasharray="5 4" dot={false} isAnimationActive={false} />
           <Line
-            dataKey="contributed"
-            name="Total put in"
-            stroke="var(--text-muted)"
-            strokeWidth={1.5}
-            strokeDasharray="5 4"
+            dataKey="p50"
+            stroke="var(--text)"
+            strokeWidth={2.5}
             dot={false}
+            activeDot={{ r: 5, strokeWidth: 2, stroke: 'var(--surface)', fill: 'var(--text)' }}
             isAnimationActive={false}
           />
-          <Legend wrapperStyle={{ fontSize: 13 }} formatter={legendText} />
         </ComposedChart>
       </ResponsiveContainer>
     </div>

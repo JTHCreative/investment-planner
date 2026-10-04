@@ -134,13 +134,51 @@ export async function moveCash(uid: string, pid: string, amount: number) {
   });
 }
 
-export async function duplicatePortfolio(uid: string, source: Portfolio): Promise<string> {
-  return createPortfolio(uid, {
-    name: `${source.name} (copy)`.slice(0, 80),
-    description: source.description,
-    startingCash: source.startingCash,
-    targets: source.targets,
-  });
+export type DuplicateMode = 'plan' | 'exact';
+
+/**
+ * Copy a portfolio so it can be tweaked without touching the original.
+ * - 'plan': same starting cash and target mix, nothing invested yet. Best for comparing variations of a plan.
+ * - 'exact': also copies cash, holdings, trade log and plan history, so the copy starts exactly where the original is.
+ */
+export async function duplicatePortfolio(uid: string, source: Portfolio, name: string, mode: DuplicateMode): Promise<string> {
+  const cleanName = name.trim().slice(0, 80) || `${source.name} (copy)`.slice(0, 80);
+  const note = `Copied from ${source.name}`;
+  if (mode === 'plan') {
+    const id = await createPortfolio(uid, { name: cleanName, description: source.description, startingCash: source.startingCash });
+    if (source.targets.length) await saveTargets(uid, id, source.targets, note);
+    return id;
+  }
+
+  const now = Date.now();
+  const ref = doc(portfoliosCol(uid));
+  const [txs, revs] = await Promise.all([getDocs(transactionsCol(uid, source.id)), getDocs(revisionsCol(uid, source.id))]);
+  // Firestore batches hold up to 500 writes; split long histories across several.
+  const writes: [ReturnType<typeof doc>, Record<string, unknown>][] = [
+    [
+      ref,
+      {
+        name: cleanName,
+        description: source.description ?? '',
+        startingCash: source.startingCash,
+        cash: source.cash,
+        holdings: source.holdings ?? {},
+        targets: source.targets,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ],
+    ...txs.docs.map((d) => [doc(transactionsCol(uid, ref.id), d.id), d.data()] as [ReturnType<typeof doc>, Record<string, unknown>]),
+    ...revs.docs.map((d) => [doc(revisionsCol(uid, ref.id), d.id), d.data()] as [ReturnType<typeof doc>, Record<string, unknown>]),
+    [doc(revisionsCol(uid, ref.id)), { targets: source.targets, note, createdAt: now }],
+  ];
+  // The portfolio document goes in the first batch, so the copy never exists without its holdings.
+  for (let i = 0; i < writes.length; i += 450) {
+    const batch = writeBatch(db);
+    for (const [r, data] of writes.slice(i, i + 450)) batch.set(r, data);
+    await batch.commit();
+  }
+  return ref.id;
 }
 
 export async function deletePortfolio(uid: string, pid: string) {

@@ -1,7 +1,8 @@
 import { signOut } from 'firebase/auth';
 import { useEffect, useState, useSyncExternalStore } from 'react';
-import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation } from 'react-router-dom';
+import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
+import { InfoIcon, LogoIcon, SignOutIcon } from './components/Icons';
 import { auth } from './firebase';
 import { ComparePage } from './pages/ComparePage';
 import { LoginPage } from './pages/LoginPage';
@@ -39,29 +40,49 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
   if (!apiKeys) return <div className="login muted">Loading…</div>;
   const missing = missingKeys();
 
+  const onPortfolios = location.pathname === '/' || location.pathname.startsWith('/p/');
+  const navClass = (active: boolean) => (active ? 'active' : undefined);
+
   return (
-    <>
+    <div className="app">
       <header className="topbar">
-        <NavLink to="/" className="brand">Investment Planner</NavLink>
-        <nav>
-          <NavLink to="/" end>Portfolios</NavLink>
-          <NavLink to="/compare">Compare</NavLink>
-          <NavLink to="/research">Research</NavLink>
-          <NavLink to="/settings">Settings</NavLink>
-        </nav>
-        <button className="link small" onClick={() => signOut(auth)} title={email}>Sign out</button>
+        <div className="topbar-inner">
+          <Link to="/" className="brand">
+            <span className="brand-mark"><LogoIcon size={18} /></span>
+            <span className="brand-name">Investment Planner</span>
+          </Link>
+          <nav className="nav" aria-label="Main">
+            <Link to="/" className={navClass(onPortfolios)} aria-current={onPortfolios ? 'page' : undefined}>Portfolios</Link>
+            <NavLink to="/compare" className={({ isActive }) => navClass(isActive)}>Compare</NavLink>
+            <NavLink to="/research" className={({ isActive }) => navClass(isActive)}>Research</NavLink>
+            <NavLink to="/settings" className={({ isActive }) => navClass(isActive)}>Settings</NavLink>
+          </nav>
+          <div className="user">
+            <span className="user-email">{email}</span>
+            <button className="nav-link signout" onClick={() => signOut(auth)}>
+              <SignOutIcon />
+              Sign out
+            </button>
+          </div>
+        </div>
       </header>
-      <main>
+      <main className="page">
         {missing.length > 0 && location.pathname !== '/settings' && (
-          <div className="card notice">
-            Live prices need free API keys from {missing.map((k) => (k === 'finnhub' ? 'Finnhub' : 'Alpha Vantage')).join(' and ')}.{' '}
-            <Link to="/settings">Add them in Settings</Link>
+          <div className="notice">
+            <InfoIcon size={20} />
+            <p>Live prices need free API keys from {missing.map((k) => (k === 'finnhub' ? 'Finnhub' : 'Alpha Vantage')).join(' and ')}.</p>
+            <Link to="/settings" className="btn sm">Add them in Settings</Link>
           </div>
         )}
-        {cacheProblem && <div className="card notice">{cacheProblem}</div>}
+        {cacheProblem && (
+          <div className="notice warn">
+            <InfoIcon size={20} />
+            <p>{cacheProblem}</p>
+          </div>
+        )}
         <Routes>
           <Route path="/" element={<PortfoliosPage />} />
-          <Route path="/p/:id" element={<PortfolioPage />} />
+          <Route path="/p/:id" element={<PortfolioRoute />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/research" element={<ResearchPage />} />
           <Route path="/research/:symbol" element={<ResearchPage />} />
@@ -69,11 +90,15 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
       </main>
-      <footer className="muted small">
-        Simulated money only. Market data may be delayed. Nothing here is financial advice.
-      </footer>
-    </>
+      <footer className="footer">Simulated money only. Market data may be delayed. Nothing here is financial advice.</footer>
+    </div>
   );
+}
+
+/** A fresh page per portfolio, so moving from one portfolio to another (e.g. to a new copy) never carries over unsaved edits. */
+function PortfolioRoute() {
+  const { id } = useParams();
+  return <PortfolioPage key={id} />;
 }
 
 export default function App() {

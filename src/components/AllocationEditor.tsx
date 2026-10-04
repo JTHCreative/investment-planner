@@ -1,11 +1,12 @@
 import { useRef } from 'react';
-import { money, pct } from '../lib/format';
+import { moneyExact, pct } from '../lib/format';
 import { PRESETS } from '../lib/presets';
 import type { Target } from '../lib/types';
 import { AllocationPie, CASH_KEY, type PieSlice } from './AllocationPie';
+import { CloseIcon } from './Icons';
 import { SymbolSearch, typeLabel } from './SymbolSearch';
 
-const PALETTE_SIZE = 8;
+const PALETTE_SIZE = 6;
 
 /**
  * Give each symbol a palette slot the first time it appears and keep it, so removing one holding never repaints the
@@ -20,7 +21,7 @@ function useStableColors(symbols: string[]): (symbol: string) => string {
     const used = new Set(map.values());
     let slot = 0;
     while (used.has(slot) && slot < PALETTE_SIZE) slot++;
-    // Past 8 holdings colors repeat; the table and labels still name every slice.
+    // Past 6 holdings colors repeat; the table and labels still name every slice.
     map.set(s, slot < PALETTE_SIZE ? slot : map.size % PALETTE_SIZE);
   }
   return (symbol) => `var(--series-${(map.get(symbol) ?? 0) + 1})`;
@@ -60,99 +61,129 @@ export function AllocationEditor({
     { key: CASH_KEY, label: 'Cash', weight: cash, color: 'var(--cash)' },
   ];
 
+  // Highlight a preset chip while the plan still matches it exactly.
+  const activePreset = PRESETS.find(
+    (pr) =>
+      pr.targets.length === targets.length &&
+      pr.targets.every((t) => targets.some((d) => d.symbol === t.symbol && Math.abs(d.weight - t.weight) < 1e-9)),
+  )?.name;
+
   return (
-    <div className="stack">
+    <div className="stack-lg">
       <div className="row wrap gap-sm">
-        <span className="muted small">Start from:</span>
+        <span className="muted small" style={{ marginRight: 4 }}>Start from:</span>
         {PRESETS.map((p) => (
-          <button key={p.name} type="button" className="chip" title={p.description} onClick={() => onChange(p.targets)}>
+          <button
+            key={p.name}
+            type="button"
+            className="chip"
+            aria-pressed={activePreset === p.name}
+            title={p.description}
+            onClick={() => onChange(p.targets)}
+          >
             {p.name}
           </button>
         ))}
       </div>
 
-      <SymbolSearch
-        exclude={targets.map((t) => t.symbol)}
-        onSelect={(r) => onChange([...targets, { symbol: r.symbol, name: r.name, type: r.type, weight: cash }])}
-      />
+      <div className="plan-layout">
+        <div className="plan-table">
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Investment</th>
+                  <th className="num">Weight</th>
+                  <th className="num col-amount">Amount</th>
+                  <th className="num"><span className="sr-only">Remove</span></th>
+                </tr>
+              </thead>
+              <tbody>
+                {targets.map((t, i) => (
+                  <tr key={t.symbol}>
+                    <td>
+                      <div className="holding">
+                        <span className="swatch" style={{ background: colorOf(t.symbol) }} />
+                        <div>
+                          <span className="sym">
+                            {t.symbol}
+                            <span className="tag">{typeLabel(t.type)}</span>
+                          </span>
+                          {t.name && <span className="sub truncate wide-only">{t.name}</span>}
+                          <span className="sub phone-only">{moneyExact(t.weight * amount)}</span>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="num">
+                      <span className="row" style={{ display: 'inline-flex', gap: 6 }}>
+                        <input
+                          className="weight-input"
+                          type="number"
+                          inputMode="decimal"
+                          min={0}
+                          max={100}
+                          step={0.5}
+                          aria-label={`${t.symbol} weight percent`}
+                          value={Math.round(t.weight * 1000) / 10}
+                          onChange={(e) => setWeight(i, parseFloat(e.target.value))}
+                        />
+                        <span className="muted">%</span>
+                      </span>
+                    </td>
+                    <td className="num col-amount">{moneyExact(t.weight * amount)}</td>
+                    <td className="num">
+                      <button
+                        type="button"
+                        className="icon-btn"
+                        aria-label={`Remove ${t.symbol}`}
+                        title={`Remove ${t.symbol}`}
+                        onClick={() => onChange(targets.filter((_, j) => j !== i))}
+                      >
+                        <CloseIcon />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+                <tr>
+                  <td>
+                    <div className="holding">
+                      <span className="swatch" style={{ background: 'var(--cash)' }} />
+                      <span className="muted">Cash (not invested)</span>
+                    </div>
+                  </td>
+                  <td className="num muted">{pct(cash)}</td>
+                  <td className="num muted col-amount">{moneyExact(cash * amount)}</td>
+                  <td />
+                </tr>
+              </tbody>
+              <tfoot>
+                <tr>
+                  <td>Total invested</td>
+                  <td className={`num ${over ? 'error' : ''}`}>{pct(total)}</td>
+                  <td className={`num col-amount ${over ? 'error' : ''}`}>{moneyExact(total * amount)}</td>
+                  <td />
+                </tr>
+              </tfoot>
+            </table>
+          </div>
 
-      <div className="alloc-layout">
-        <AllocationPie slices={slices} amount={amount} />
-
-        <div className="table-wrap">
-        <table className="table alloc-table">
-          <thead>
-            <tr>
-              <th>Investment</th>
-              <th className="num">Weight</th>
-              <th className="num">Amount</th>
-              <th aria-label="Remove" />
-            </tr>
-          </thead>
-          <tbody>
-            {targets.map((t, i) => (
-              <tr key={t.symbol}>
-                <td>
-                  <span className="swatch" style={{ background: colorOf(t.symbol) }} />
-                  <strong>{t.symbol}</strong> <span className="tag">{typeLabel(t.type)}</span>
-                  <div className="muted small truncate">{t.name}</div>
-                </td>
-                <td className="num">
-                  <input
-                    className="weight-input"
-                    type="number"
-                    inputMode="decimal"
-                    min={0}
-                    max={100}
-                    step={0.5}
-                    aria-label={`${t.symbol} weight percent`}
-                    value={Math.round(t.weight * 1000) / 10}
-                    onChange={(e) => setWeight(i, parseFloat(e.target.value))}
-                  />
-                  %
-                </td>
-                <td className="num">{money(t.weight * amount)}</td>
-                <td className="num">
-                  <button
-                    type="button"
-                    className="icon-button"
-                    aria-label={`Remove ${t.symbol}`}
-                    title={`Remove ${t.symbol}`}
-                    onClick={() => onChange(targets.filter((_, j) => j !== i))}
-                  >
-                    ✕
-                  </button>
-                </td>
-              </tr>
-            ))}
-            <tr className="muted">
-              <td>
-                <span className="swatch alloc-cash" />
-                Cash (not invested)
-              </td>
-              <td className="num">{pct(cash)}</td>
-              <td className="num">{money(cash * amount)}</td>
-              <td />
-            </tr>
-          </tbody>
-          <tfoot>
-            <tr>
-              <td>Total invested</td>
-              <td className={`num ${over ? 'error' : ''}`}>{pct(total)}</td>
-              <td className={`num ${over ? 'error' : ''}`}>{money(total * amount)}</td>
-              <td className="num">
-                {targets.length > 1 && (
-                  <button type="button" className="link" onClick={spreadEvenly}>
-                      Split evenly
-                  </button>
-                )}
-              </td>
-            </tr>
-          </tfoot>
-        </table>
+          <div className="row wrap" style={{ gap: 12 }}>
+            <SymbolSearch
+              placeholder="Add a stock, ETF or fund…"
+              exclude={targets.map((t) => t.symbol)}
+              onSelect={(r) => onChange([...targets, { symbol: r.symbol, name: r.name, type: r.type, weight: cash }])}
+            />
+            {targets.length > 1 && (
+              <button type="button" className="btn ghost" onClick={spreadEvenly} style={{ fontSize: 14, textDecoration: 'underline', textDecorationColor: 'var(--text-faint)' }}>
+                Split evenly
+              </button>
+            )}
+          </div>
+          {over && <p className="error">Allocations add up to more than 100%. Lower some weights.</p>}
         </div>
+
+        <AllocationPie slices={slices} amount={amount} />
       </div>
-      {over && <p className="error">Allocations add up to more than 100%. Lower some weights.</p>}
     </div>
   );
 }
