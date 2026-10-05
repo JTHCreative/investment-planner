@@ -63,6 +63,8 @@ code { font-family: ui-monospace, Menlo, monospace; font-size: 0.9em; }
 .nav a, .nav-link { display: flex; align-items: center; gap: 8px; min-height: 44px; padding: 0 14px; border-radius: var(--radius-control); color: var(--text-muted); text-decoration: none; font-size: 14px; background: none; border: 0; cursor: pointer; }
 .nav a:hover, .nav-link:hover { background: var(--surface-2); color: var(--text); }
 .nav a.active { background: var(--surface-2); color: var(--text); }
+.nav a .icon { flex: none; transition: color 0.15s; }
+.nav a.active .icon { color: var(--line); }
 .user { display: flex; align-items: center; gap: 12px; }
 .user-email { font-size: 14px; color: var(--text-muted); max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-link.signout { color: var(--text); padding: 0 12px; }
@@ -74,6 +76,7 @@ main.page { flex: 1 1 auto; width: 100%; max-width: 1200px; margin: 0 auto; padd
   .topbar-inner { padding: 8px 16px; gap: 4px 12px; }
   .brand-name, .user-email { display: none; }
   .nav { order: 3; flex-basis: 100%; overflow-x: auto; flex-wrap: nowrap; }
+  .zoom-hint { display: none; }
   .user { margin-left: auto; }
   main.page { padding: 24px 16px 40px; }
   h1 { font-size: 30px; line-height: 36px; }
@@ -269,6 +272,17 @@ details.panel > .panel-body { display: flex; flex-direction: column; gap: 24px; 
 
 /* ---------- Charts ---------- */
 .chart { width: 100%; min-width: 0; }
+.chart-zoom { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.chart.zoomable { touch-action: pan-y; user-select: none; -webkit-user-select: none; }
+.chart.pannable { cursor: grab; }
+.chart.dragging { cursor: grabbing; }
+.zoom-bar { display: flex; align-items: center; justify-content: flex-end; gap: 4px; }
+.zoom-hint { margin-right: auto; }
+.zoom-bar .icon-btn.sm { width: 32px; height: 32px; }
+.zoom-bar button:disabled { opacity: 0.4; cursor: default; background: transparent; color: var(--text-muted); }
+.zoom-slider { width: 128px; accent-color: var(--line); cursor: pointer; margin: 0 4px; }
+.btn-link { min-height: 32px; padding: 0 8px; border: 0; border-radius: var(--radius-control); background: transparent; color: var(--line); cursor: pointer; }
+.btn-link:hover:not(:disabled) { background: var(--surface-2); }
 .legend { display: flex; flex-wrap: wrap; gap: 8px 20px; font-size: 12px; line-height: 16px; color: var(--text-muted); }
 .legend span { display: inline-flex; align-items: center; gap: 8px; }
 .legend .ln { width: 16px; height: 3px; border-radius: 2px; }

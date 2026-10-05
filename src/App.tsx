@@ -2,7 +2,7 @@ import { signOut } from 'firebase/auth';
 import { useEffect, useState, useSyncExternalStore } from 'react';
 import { BrowserRouter, Link, NavLink, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { AuthProvider, useAuth } from './auth/AuthProvider';
-import { InfoIcon, LogoIcon, SignOutIcon } from './components/Icons';
+import { BarsIcon, BriefcaseIcon, InfoIcon, LogoIcon, SearchIcon, SettingsIcon, SignOutIcon } from './components/Icons';
 import { auth } from './firebase';
 import { ComparePage } from './pages/ComparePage';
 import { LoginPage } from './pages/LoginPage';
@@ -52,10 +52,10 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
             <span className="brand-name">Investment Planner</span>
           </Link>
           <nav className="nav" aria-label="Main">
-            <Link to="/" className={navClass(onPortfolios)} aria-current={onPortfolios ? 'page' : undefined}>Portfolios</Link>
-            <NavLink to="/compare" className={({ isActive }) => navClass(isActive)}>Compare</NavLink>
-            <NavLink to="/research" className={({ isActive }) => navClass(isActive)}>Research</NavLink>
-            <NavLink to="/settings" className={({ isActive }) => navClass(isActive)}>Settings</NavLink>
+            <Link to="/" className={navClass(onPortfolios)} aria-current={onPortfolios ? 'page' : undefined}><BriefcaseIcon />Portfolios</Link>
+            <NavLink to="/compare" className={({ isActive }) => navClass(isActive)}><BarsIcon />Compare</NavLink>
+            <NavLink to="/research" className={({ isActive }) => navClass(isActive)}><SearchIcon />Research</NavLink>
+            <NavLink to="/settings" className={({ isActive }) => navClass(isActive)}><SettingsIcon />Settings</NavLink>
           </nav>
           <div className="user">
             <span className="user-email">{email}</span>
