@@ -10,6 +10,14 @@ import { backtest, project } from '../lib/sim/simulate';
 
 const MAX = 4;
 
+type View = 'history' | 'projection';
+type Outcome = 'p10' | 'p50' | 'p90';
+const OUTCOMES: [Outcome, string][] = [
+  ['p10', 'Pessimistic'],
+  ['p50', 'Median'],
+  ['p90', 'Optimistic'],
+];
+
 /** Put several plans through the same history and the same simulated futures, side by side. */
 export function ComparePage() {
   const user = useUser();
@@ -21,6 +29,8 @@ export function ComparePage() {
   const [amount, setAmount] = useState(100_000);
   const [years, setYears] = useState(20);
   const [lookback, setLookback] = useState(0);
+  const [view, setView] = useState<View>('history');
+  const [outcome, setOutcome] = useState<Outcome>('p50');
 
   const symbols = [...new Set(selected.flatMap((p) => p.targets.filter((t) => t.weight > 0).map((t) => t.symbol)))].sort();
   const aligned = useAlignedReturns(symbols);
@@ -60,6 +70,14 @@ export function ComparePage() {
     results.forEach((r, j) => (row[`s${j}`] = r.backtest.values[i]));
     return row;
   });
+  const projectionData = results?.[0]?.projection.points.map((pt, i) => {
+    const row: Record<string, string | number> = { year: `Yr ${pt.year}`, contributed: pt.contributed };
+    results.forEach((r, j) => (row[`s${j}`] = r.projection.points[i][outcome]));
+    return row;
+  });
+  const outcomeLabel = OUTCOMES.find(([o]) => o === outcome)![1];
+  const plotSeries = results?.map((r, j) => ({ key: `s${j}`, label: r.portfolio.name, color: colorOf(r.portfolio.id) })) ?? [];
+  const legend = results?.map((r) => ({ label: r.portfolio.name, color: colorOf(r.portfolio.id) })) ?? [];
 
   return (
     <>
@@ -109,20 +127,54 @@ export function ComparePage() {
       {!aligned.loading && aligned.data && !results && <p className="muted">These plans share less than a year of price history.</p>}
       {results && chartData && (
         <>
-          <section className="card" aria-labelledby="hist-h" style={{ gap: 16 }}>
-            <div className="card-head">
-              <h3 id="hist-h">History: {money(amount)} invested at the start</h3>
-              <p className="xsmall muted">
-                Every plan uses the same months ({monthLabel(results[0].backtest.months[0])} to {monthLabel(results[0].backtest.months.at(-1)!)}),
-                the period all of their investments have existed.
-              </p>
+          <section className="card" aria-labelledby="chart-h" style={{ gap: 16 }}>
+            <div className="segmented" role="radiogroup" aria-label="Chart to show">
+              <button role="radio" aria-checked={view === 'history'} className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>
+                History
+              </button>
+              <button role="radio" aria-checked={view === 'projection'} className={view === 'projection' ? 'active' : ''} onClick={() => setView('projection')}>
+                Projection
+              </button>
             </div>
-            <ValueLineChart
-              data={chartData}
-              xKey="month"
-              series={results.map((r, j) => ({ key: `s${j}`, label: r.portfolio.name, color: colorOf(r.portfolio.id) }))}
-            />
-            <ChartLegend items={results.map((r) => ({ label: r.portfolio.name, color: colorOf(r.portfolio.id) }))} />
+            {view === 'history' ? (
+              <>
+                <div className="card-head">
+                  <h3 id="chart-h">History: {money(amount)} invested at the start</h3>
+                  <p className="xsmall muted">
+                    Every plan uses the same months ({monthLabel(results[0].backtest.months[0])} to {monthLabel(results[0].backtest.months.at(-1)!)}),
+                    the period all of their investments have existed.
+                  </p>
+                </div>
+                <ValueLineChart data={chartData} xKey="month" series={plotSeries} />
+                <ChartLegend items={legend} />
+              </>
+            ) : (
+              projectionData && (
+                <>
+                  <div className="card-head inline">
+                    <div className="card-head">
+                      <h3 id="chart-h">Projection: {money(amount)} over the next {years} years</h3>
+                      <p className="xsmall muted">
+                        The {outcomeLabel.toLowerCase()} outcome for each plan across 1,000 simulated futures, in today’s dollars.
+                      </p>
+                    </div>
+                    <div className="segmented" role="radiogroup" aria-label="Outcome to show">
+                      {OUTCOMES.map(([o, label]) => (
+                        <button key={o} role="radio" aria-checked={outcome === o} className={outcome === o ? 'active' : ''} onClick={() => setOutcome(o)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <ValueLineChart
+                    data={projectionData}
+                    xKey="year"
+                    series={[...plotSeries, { key: 'contributed', label: 'Amount put in', color: 'var(--text-muted)', dashed: true }]}
+                  />
+                  <ChartLegend items={[...legend, { label: 'Amount put in', color: 'var(--text-muted)', kind: 'dash' }]} />
+                </>
+              )
+            )}
           </section>
           <section className="card" aria-label="Comparison table" style={{ padding: 8, gap: 0 }}>
             <div className="table-wrap">
