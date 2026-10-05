@@ -208,6 +208,11 @@ label.chip:not(.on) { color: var(--text-muted); }
 .card.flush .table-wrap { padding: 0 8px; }
 .table { width: 100%; border-collapse: collapse; font-size: 14px; line-height: 20px; }
 .table th { font-weight: 400; color: var(--text-muted); text-align: left; padding: 12px 16px; font-size: 12px; line-height: 16px; white-space: nowrap; }
+.table .sort-btn { display: inline-flex; align-items: center; gap: 4px; padding: 0; border: 0; background: none; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.table .sort-btn:hover, .table .sort-btn.active { color: var(--text); }
+.table .sort-btn .icon { opacity: 0; transition: opacity 0.15s; }
+.table .sort-btn:hover .icon { opacity: 0.5; }
+.table .sort-btn.active .icon { opacity: 1; color: var(--line); }
 .table td { padding: 14px 16px; border-top: 1px solid var(--border); vertical-align: middle; white-space: nowrap; }
 .table tfoot td { color: var(--text); }
 .table .num { text-align: right; font-variant-numeric: tabular-nums; }
