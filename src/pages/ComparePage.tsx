@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { ChartLegend, SERIES_COLORS, ValueLineChart } from '../components/Charts';
 import { ArrowDownIcon, ArrowUpIcon, BackIcon } from '../components/Icons';
+import { PlanAssets } from '../components/PlanAssets';
 import { money, monthLabel, pct, pctSigned } from '../lib/format';
 import { useAlignedReturns, usePortfolios } from '../lib/hooks';
 import { trailingYears } from '../lib/sim/series';
@@ -35,6 +36,9 @@ export function ComparePage() {
   const [view, setView] = useState<View>('history');
   const [outcome, setOutcome] = useState<Outcome>('p50');
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
+  // The plan whose assets are shown beside the table. It stays set while the panel slides shut, so the panel
+  // keeps its content until it's out of view.
+  const [detail, setDetail] = useState<{ id: string; open: boolean } | null>(null);
 
   const symbols = [...new Set(selected.flatMap((p) => p.targets.filter((t) => t.weight > 0).map((t) => t.symbol)))].sort();
   const aligned = useAlignedReturns(symbols);
@@ -121,6 +125,10 @@ export function ComparePage() {
       </th>
     );
   };
+  const detailPlan = detail && results?.find((r) => r.portfolio.id === detail.id)?.portfolio;
+  const detailOpen = !!detail?.open && !!detailPlan;
+  // Clicking the open plan's row closes the panel; any other row opens it (or switches it) to that plan.
+  const showDetail = (id: string) => setDetail(detailOpen && detail.id === id ? { id, open: false } : { id, open: true });
   const legend = results?.map((r) => ({ label: r.portfolio.name, color: colorOf(r.portfolio.id) })) ?? [];
 
   return (
@@ -220,37 +228,71 @@ export function ComparePage() {
               )
             )}
           </section>
-          <section className="card" aria-label="Comparison table" style={{ padding: 8, gap: 0 }}>
-            <div className="table-wrap">
-              <table className="table">
-                <thead>
-                  <tr>
-                    {sortHeader('name', 'Plan', false)}
-                    {columns.map((c) => sortHeader(c.key, c.label, true))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {rows.map((r) => (
-                    <tr key={r.portfolio.id}>
-                      <td>
-                        <Link to={`/p/${r.portfolio.id}`} className="row" style={{ display: 'inline-flex', gap: 10 }}>
-                          <span className="swatch" style={{ background: colorOf(r.portfolio.id) }} />
-                          {r.portfolio.name}
-                        </Link>
-                      </td>
-                      {columns.map((c) => (
-                        <td key={c.key} className="num">{c.show(r)}</td>
-                      ))}
+          <div className={`compare-split${detailOpen ? ' open' : ''}`}>
+            <section className="card" aria-label="Comparison table" style={{ padding: 8, gap: 0 }}>
+              <div className="table-wrap">
+                <table className="table">
+                  <thead>
+                    <tr>
+                      {sortHeader('name', 'Plan', false)}
+                      {columns.map((c) => sortHeader(c.key, c.label, true))}
                     </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <p className="table-note" style={{ padding: '12px 16px 16px' }}>
-              Projections are in today’s dollars (2.5% inflation), rebalanced yearly, from 1,000 simulated futures built out of the same
-              history. Pessimistic and optimistic are the 10th and 90th percentiles. This is a simulation, not a promise or financial advice.
-            </p>
-          </section>
+                  </thead>
+                  <tbody>
+                    {rows.map((r) => (
+                      <tr
+                        key={r.portfolio.id}
+                        className={`pickable${detailOpen && detail.id === r.portfolio.id ? ' picked' : ''}`}
+                        tabIndex={0}
+                        aria-label={`${r.portfolio.name}: ${detailOpen && detail.id === r.portfolio.id ? 'hide' : 'show'} its assets`}
+                        aria-controls="plan-assets"
+                        onClick={() => showDetail(r.portfolio.id)}
+                        onKeyDown={(e) => {
+                          if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+                          e.preventDefault();
+                          showDetail(r.portfolio.id);
+                        }}
+                      >
+                        <td>
+                          <Link
+                            to={`/p/${r.portfolio.id}`}
+                            className="row"
+                            style={{ display: 'inline-flex', gap: 10 }}
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            <span className="swatch" style={{ background: colorOf(r.portfolio.id) }} />
+                            {r.portfolio.name}
+                          </Link>
+                        </td>
+                        {columns.map((c) => (
+                          <td key={c.key} className="num">{c.show(r)}</td>
+                        ))}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <p className="table-note" style={{ padding: '12px 16px 16px' }}>
+                Projections are in today’s dollars (2.5% inflation), rebalanced yearly, from 1,000 simulated futures built out of the same
+                history. Pessimistic and optimistic are the 10th and 90th percentiles. This is a simulation, not a promise or financial advice.
+              </p>
+            </section>
+            <aside
+              id="plan-assets"
+              className="card compare-detail"
+              aria-label={detailPlan ? `Assets in ${detailPlan.name}` : 'Plan assets'}
+              aria-hidden={!detailOpen}
+              inert={!detailOpen}
+            >
+              {detailPlan && (
+                <PlanAssets
+                  portfolio={detailPlan}
+                  color={colorOf(detailPlan.id)}
+                  onClose={() => setDetail((d) => d && { ...d, open: false })}
+                />
+              )}
+            </aside>
+          </div>
         </>
       )}
     </>

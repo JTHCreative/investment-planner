@@ -348,3 +348,56 @@ details.panel > .panel-body { display: flex; flex-direction: column; gap: 24px; 
 .login-card { width: 100%; max-width: 420px; background: var(--surface); border-radius: var(--radius); padding: 40px 32px 32px; display: flex; flex-direction: column; gap: 28px; }
 .or { display: flex; align-items: center; gap: 12px; color: var(--text-muted); font-size: 12px; line-height: 16px; }
 .or::before, .or::after { content: ''; flex: 1 1 0; height: 1px; background: var(--border); }
+
+/* ---------- Compare: plan assets beside the table ---------- */
+/* The table and the panel share one grid row, so the panel is always exactly as tall as the table card.
+   Opening the panel widens its column from 0, which squeezes the table's columns into the space left over. */
+.compare-split { display: grid; grid-template-columns: minmax(0, 1fr) 0px; column-gap: 0; align-items: stretch; transition: grid-template-columns 400ms cubic-bezier(0.2, 0.8, 0.2, 1), column-gap 400ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.compare-split.open { grid-template-columns: minmax(0, 1fr) 340px; column-gap: 16px; min-height: 340px; }
+.compare-detail { position: relative; overflow: hidden; padding: 0; min-width: 0; opacity: 0; transform: translateX(32px); transition: opacity 250ms ease, transform 400ms cubic-bezier(0.2, 0.8, 0.2, 1), visibility 0s linear 400ms; visibility: hidden; }
+.compare-split.open .compare-detail { opacity: 1; transform: none; visibility: visible; transition-delay: 80ms, 0ms, 0s; }
+/* Laid out at full width from the start so the content doesn't reflow while the column grows. */
+.plan-assets { position: absolute; inset: 0; width: 340px; padding: 16px 20px 20px; display: flex; flex-direction: column; gap: 12px; overflow-y: auto; }
+.plan-assets-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.plan-assets-head h3 { font-size: 18px; line-height: 24px; }
+.plan-assets .icon-btn.sm { width: 32px; height: 32px; flex: none; }
+.plan-assets > * { flex: none; }
+.plan-assets .segmented { align-self: stretch; }
+.plan-assets .segmented button { flex: 1; }
+
+.table tr.pickable { cursor: pointer; transition: background 150ms; }
+.table tr.pickable:hover { background: color-mix(in srgb, var(--surface-2) 60%, transparent); }
+.table tr.pickable.picked { background: var(--surface-2); }
+.table tr.pickable:focus-visible { outline: 2px solid var(--primary-hover); outline-offset: -2px; }
+
+.plan-assets > .labeled-pie { flex: 1 1 auto; }
+/* The pie fills whatever height is left in the panel; the viewBox keeps it round and centred. */
+.labeled-pie { position: relative; min-height: 160px; }
+.labeled-pie svg { position: absolute; inset: 0; display: block; width: 100%; height: 100%; touch-action: manipulation; animation: pie-in 500ms cubic-bezier(0.2, 0.8, 0.2, 1); }
+.labeled-pie path, .labeled-pie circle { cursor: pointer; transition: opacity 150ms; }
+.labeled-pie .pie-dim { opacity: 0.4; }
+.pie-slice-label { fill: #fff; font-weight: 500; pointer-events: none; paint-order: stroke; stroke: rgba(0, 0, 0, 0.25); stroke-width: 2px; }
+.pie-tooltip { position: absolute; z-index: 2; pointer-events: none; min-width: 120px; max-width: 220px; white-space: normal; }
+@keyframes pie-in { from { opacity: 0; transform: scale(0.85) rotate(-30deg); } }
+
+.asset-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; font-size: 14px; line-height: 20px; }
+.asset-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.asset-list li:first-child { border-top: 0; }
+.asset-list-name { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+.asset-list-name .xsmall { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Phones: no room beside the table, so the panel opens underneath it instead. */
+@media (max-width: 760px) {
+  .compare-split, .compare-split.open { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto 0fr; column-gap: 0; row-gap: 0; min-height: 0; transition: grid-template-rows 400ms cubic-bezier(0.2, 0.8, 0.2, 1), row-gap 400ms; }
+  .compare-split.open { grid-template-rows: auto 1fr; row-gap: 16px; }
+  .compare-detail { transform: translateY(-16px); }
+  .compare-detail { min-height: 0; }
+  .plan-assets { position: static; width: auto; overflow: visible; }
+  .labeled-pie { min-height: 0; }
+  .labeled-pie svg { position: static; height: auto; max-width: 260px; margin: 0 auto; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .compare-split, .compare-detail { transition: none; }
+  .labeled-pie svg { animation: none; }
+}
