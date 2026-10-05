@@ -1,4 +1,4 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from 'react';
+import { useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from 'react';
 import { pct } from '../lib/format';
 
 export interface LabeledSlice {
@@ -13,7 +13,10 @@ export interface LabeledSlice {
 }
 
 const SIZE = 200;
-const R = 96;
+// Leaves room inside the 200×200 box for a hovered slice to pop outwards.
+const R = 88;
+/** How far a hovered slice slides out from the centre. */
+const POP = 8;
 const C = SIZE / 2;
 /** Labels sit this far out from the centre, as a share of the radius. */
 const LABEL_R = 0.64;
@@ -34,8 +37,8 @@ function wedge(a0: number, a1: number): string {
 const labelWidth = (text: string) => text.length * LABEL_FONT * 0.62 + 6;
 
 /**
- * Pie chart with each slice's name written on it when there's room. Hovering (or tapping) a slice shows a tooltip
- * with its full name and share.
+ * Pie chart with each slice's name written on it when there's room. Hovering (or tapping) a slice pops it out of the
+ * pie, greys out the others, and shows a tooltip with its full name and share.
  */
 export function LabeledPie({ slices, label }: { slices: LabeledSlice[]; label: string }) {
   const boxRef = useRef<HTMLDivElement>(null);
@@ -66,38 +69,28 @@ export function LabeledPie({ slices, label }: { slices: LabeledSlice[]; label: s
   return (
     <div className="labeled-pie" ref={boxRef} onPointerLeave={() => setHover(null)}>
       <svg viewBox={`0 0 ${SIZE} ${SIZE}`} role="img" aria-label={`${label}: ${summary}`}>
-        {arcs.map(({ slice, a0, a1 }) =>
-          a1 - a0 >= 2 * Math.PI - 1e-6 ? (
-            <circle
+        {/* Each slice and its label move together: the hovered one slides out, the rest grey out and shrink. */}
+        {arcs.map(({ slice, a0, a1, lx, ly, fits }) => {
+          const whole = a1 - a0 >= 2 * Math.PI - 1e-6;
+          const state = !hover ? '' : hover.key === slice.key ? ' popped' : ' receded';
+          const [dx, dy] = whole ? [0, 0] : [POP * Math.sin((a0 + a1) / 2), -POP * Math.cos((a0 + a1) / 2)];
+          return (
+            <g
               key={slice.key}
-              cx={C}
-              cy={C}
-              r={R}
-              fill={slice.color}
+              className={`pie-slice${state}`}
+              style={{ '--pop-x': `${dx}px`, '--pop-y': `${dy}px` } as CSSProperties}
               onPointerMove={(e) => track(slice.key, e)}
               onPointerDown={(e) => track(slice.key, e)}
-            />
-          ) : (
-            <path
-              key={slice.key}
-              d={wedge(a0, a1)}
-              fill={slice.color}
-              stroke="var(--surface)"
-              strokeWidth={1.5}
-              strokeLinejoin="round"
-              className={hover && hover.key !== slice.key ? 'pie-dim' : undefined}
-              onPointerMove={(e) => track(slice.key, e)}
-              onPointerDown={(e) => track(slice.key, e)}
-            />
-          ),
-        )}
-        {arcs.map(({ slice, lx, ly, fits }) =>
-          fits ? (
-            <text key={slice.key} x={lx} y={ly} textAnchor="middle" dominantBaseline="central" className="pie-slice-label" fontSize={LABEL_FONT}>
-              {slice.label}
-            </text>
-          ) : null,
-        )}
+            >
+              {whole ? <circle cx={C} cy={C} r={R} fill={slice.color} /> : <path d={wedge(a0, a1)} fill={slice.color} />}
+              {fits && (
+                <text x={lx} y={ly} textAnchor="middle" dominantBaseline="central" className="pie-slice-label" fontSize={LABEL_FONT}>
+                  {slice.label}
+                </text>
+              )}
+            </g>
+          );
+        })}
       </svg>
       {hover && hovered && (
         <div
