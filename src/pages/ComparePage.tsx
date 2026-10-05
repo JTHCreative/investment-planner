@@ -2,13 +2,24 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { ChartLegend, SERIES_COLORS, ValueLineChart } from '../components/Charts';
-import { BackIcon } from '../components/Icons';
+import { ArrowDownIcon, ArrowUpIcon, BackIcon } from '../components/Icons';
 import { money, monthLabel, pct, pctSigned } from '../lib/format';
 import { useAlignedReturns, usePortfolios } from '../lib/hooks';
 import { trailingYears } from '../lib/sim/series';
 import { backtest, project } from '../lib/sim/simulate';
 
 const MAX = 4;
+
+type View = 'history' | 'projection';
+type Outcome = 'p10' | 'p50' | 'p90';
+type SortKey = 'name' | 'cagr' | 'volatility' | 'maxDrawdown' | 'worstYear' | 'p10' | 'p50' | 'p90';
+type SortDir = 'asc' | 'desc';
+
+const OUTCOMES: [Outcome, string][] = [
+  ['p10', 'Pessimistic'],
+  ['p50', 'Median'],
+  ['p90', 'Optimistic'],
+];
 
 /** Put several plans through the same history and the same simulated futures, side by side. */
 export function ComparePage() {
@@ -21,6 +32,9 @@ export function ComparePage() {
   const [amount, setAmount] = useState(100_000);
   const [years, setYears] = useState(20);
   const [lookback, setLookback] = useState(0);
+  const [view, setView] = useState<View>('history');
+  const [outcome, setOutcome] = useState<Outcome>('p50');
+  const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
 
   const symbols = [...new Set(selected.flatMap((p) => p.targets.filter((t) => t.weight > 0).map((t) => t.symbol)))].sort();
   const aligned = useAlignedReturns(symbols);
@@ -60,6 +74,54 @@ export function ComparePage() {
     results.forEach((r, j) => (row[`s${j}`] = r.backtest.values[i]));
     return row;
   });
+  const projectionData = results?.[0]?.projection.points.map((pt, i) => {
+    const row: Record<string, string | number> = { year: `Yr ${pt.year}`, contributed: pt.contributed };
+    results.forEach((r, j) => (row[`s${j}`] = r.projection.points[i][outcome]));
+    return row;
+  });
+  const outcomeLabel = OUTCOMES.find(([o]) => o === outcome)![1];
+  const plotSeries = results?.map((r, j) => ({ key: `s${j}`, label: r.portfolio.name, color: colorOf(r.portfolio.id) })) ?? [];
+
+  type Row = NonNullable<typeof results>[number];
+  const endOf = (r: Row) => r.projection.points[r.projection.points.length - 1];
+  const columns: { key: SortKey; label: string; value: (r: Row) => number | string; show: (r: Row) => string }[] = [
+    { key: 'cagr', label: 'Annual return', value: (r) => r.backtest.stats.cagr, show: (r) => pctSigned(r.backtest.stats.cagr) },
+    { key: 'volatility', label: 'Volatility', value: (r) => r.backtest.stats.volatility, show: (r) => pct(r.backtest.stats.volatility) },
+    { key: 'maxDrawdown', label: 'Worst drop', value: (r) => r.backtest.stats.maxDrawdown, show: (r) => pctSigned(r.backtest.stats.maxDrawdown) },
+    { key: 'worstYear', label: 'Worst 12 mo.', value: (r) => r.backtest.stats.worstYear, show: (r) => pctSigned(r.backtest.stats.worstYear) },
+    { key: 'p10', label: `In ${years} yrs: pessimistic`, value: (r) => endOf(r).p10, show: (r) => money(endOf(r).p10) },
+    { key: 'p50', label: 'Median', value: (r) => endOf(r).p50, show: (r) => money(endOf(r).p50) },
+    { key: 'p90', label: 'Optimistic', value: (r) => endOf(r).p90, show: (r) => money(endOf(r).p90) },
+  ];
+  const sortValue = (r: Row, key: SortKey) => (key === 'name' ? r.portfolio.name : columns.find((c) => c.key === key)!.value(r));
+  const rows = !results
+    ? []
+    : !sort
+      ? results
+      : [...results].sort((a, b) => {
+          const x = sortValue(a, sort.key);
+          const y = sortValue(b, sort.key);
+          const order = typeof x === 'string' ? x.localeCompare(String(y)) : x - Number(y);
+          return sort.dir === 'asc' ? order : -order;
+        });
+  // A new column starts with the biggest numbers on top (names A to Z); clicking it again flips the order.
+  const sortBy = (key: SortKey) =>
+    setSort((s) => (s?.key === key ? { key, dir: s.dir === 'asc' ? 'desc' : 'asc' } : { key, dir: key === 'name' ? 'asc' : 'desc' }));
+  const sortHeader = (key: SortKey, label: string, num: boolean) => {
+    const active = sort?.key === key;
+    const arrow = active && sort.dir === 'asc' ? <ArrowUpIcon size={12} /> : <ArrowDownIcon size={12} />;
+    return (
+      <th key={key} className={num ? 'num' : undefined} aria-sort={active ? (sort.dir === 'asc' ? 'ascending' : 'descending') : 'none'}>
+        {/* The arrow sits on the side away from the column's alignment, so headers line up with their values. */}
+        <button type="button" className={`sort-btn${active ? ' active' : ''}`} onClick={() => sortBy(key)}>
+          {num && arrow}
+          {label}
+          {!num && arrow}
+        </button>
+      </th>
+    );
+  };
+  const legend = results?.map((r) => ({ label: r.portfolio.name, color: colorOf(r.portfolio.id) })) ?? [];
 
   return (
     <>
@@ -109,57 +171,78 @@ export function ComparePage() {
       {!aligned.loading && aligned.data && !results && <p className="muted">These plans share less than a year of price history.</p>}
       {results && chartData && (
         <>
-          <section className="card" aria-labelledby="hist-h" style={{ gap: 16 }}>
-            <div className="card-head">
-              <h3 id="hist-h">History: {money(amount)} invested at the start</h3>
-              <p className="xsmall muted">
-                Every plan uses the same months ({monthLabel(results[0].backtest.months[0])} to {monthLabel(results[0].backtest.months.at(-1)!)}),
-                the period all of their investments have existed.
-              </p>
+          <section className="card" aria-labelledby="chart-h" style={{ gap: 16 }}>
+            <div className="segmented" role="radiogroup" aria-label="Chart to show">
+              <button role="radio" aria-checked={view === 'history'} className={view === 'history' ? 'active' : ''} onClick={() => setView('history')}>
+                History
+              </button>
+              <button role="radio" aria-checked={view === 'projection'} className={view === 'projection' ? 'active' : ''} onClick={() => setView('projection')}>
+                Projection
+              </button>
             </div>
-            <ValueLineChart
-              data={chartData}
-              xKey="month"
-              series={results.map((r, j) => ({ key: `s${j}`, label: r.portfolio.name, color: colorOf(r.portfolio.id) }))}
-            />
-            <ChartLegend items={results.map((r) => ({ label: r.portfolio.name, color: colorOf(r.portfolio.id) }))} />
+            {view === 'history' ? (
+              <>
+                <div className="card-head">
+                  <h3 id="chart-h">History: {money(amount)} invested at the start</h3>
+                  <p className="xsmall muted">
+                    Every plan uses the same months ({monthLabel(results[0].backtest.months[0])} to {monthLabel(results[0].backtest.months.at(-1)!)}),
+                    the period all of their investments have existed.
+                  </p>
+                </div>
+                <ValueLineChart data={chartData} xKey="month" series={plotSeries} />
+                <ChartLegend items={legend} />
+              </>
+            ) : (
+              projectionData && (
+                <>
+                  <div className="card-head inline">
+                    <div className="card-head">
+                      <h3 id="chart-h">Projection: {money(amount)} over the next {years} years</h3>
+                      <p className="xsmall muted">
+                        The {outcomeLabel.toLowerCase()} outcome for each plan across 1,000 simulated futures, in today’s dollars.
+                      </p>
+                    </div>
+                    <div className="segmented" role="radiogroup" aria-label="Outcome to show">
+                      {OUTCOMES.map(([o, label]) => (
+                        <button key={o} role="radio" aria-checked={outcome === o} className={outcome === o ? 'active' : ''} onClick={() => setOutcome(o)}>
+                          {label}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                  <ValueLineChart
+                    data={projectionData}
+                    xKey="year"
+                    series={[...plotSeries, { key: 'contributed', label: 'Amount put in', color: 'var(--text-muted)', dashed: true }]}
+                  />
+                  <ChartLegend items={[...legend, { label: 'Amount put in', color: 'var(--text-muted)', kind: 'dash' }]} />
+                </>
+              )
+            )}
           </section>
           <section className="card" aria-label="Comparison table" style={{ padding: 8, gap: 0 }}>
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
-                    <th>Plan</th>
-                    <th className="num">Annual return</th>
-                    <th className="num">Volatility</th>
-                    <th className="num">Worst drop</th>
-                    <th className="num">Worst 12 mo.</th>
-                    <th className="num">In {years} yrs: pessimistic</th>
-                    <th className="num">Median</th>
-                    <th className="num">Optimistic</th>
+                    {sortHeader('name', 'Plan', false)}
+                    {columns.map((c) => sortHeader(c.key, c.label, true))}
                   </tr>
                 </thead>
                 <tbody>
-                  {results.map((r) => {
-                    const end = r.projection.points[r.projection.points.length - 1];
-                    return (
-                      <tr key={r.portfolio.id}>
-                        <td>
-                          <Link to={`/p/${r.portfolio.id}`} className="row" style={{ display: 'inline-flex', gap: 10 }}>
-                            <span className="swatch" style={{ background: colorOf(r.portfolio.id) }} />
-                            {r.portfolio.name}
-                          </Link>
-                        </td>
-                        <td className="num">{pctSigned(r.backtest.stats.cagr)}</td>
-                        <td className="num">{pct(r.backtest.stats.volatility)}</td>
-                        <td className="num">{pctSigned(r.backtest.stats.maxDrawdown)}</td>
-                        <td className="num">{pctSigned(r.backtest.stats.worstYear)}</td>
-                        <td className="num">{money(end.p10)}</td>
-                        <td className="num">{money(end.p50)}</td>
-                        <td className="num">{money(end.p90)}</td>
-                      </tr>
-                    );
-                  })}
+                  {rows.map((r) => (
+                    <tr key={r.portfolio.id}>
+                      <td>
+                        <Link to={`/p/${r.portfolio.id}`} className="row" style={{ display: 'inline-flex', gap: 10 }}>
+                          <span className="swatch" style={{ background: colorOf(r.portfolio.id) }} />
+                          {r.portfolio.name}
+                        </Link>
+                      </td>
+                      {columns.map((c) => (
+                        <td key={c.key} className="num">{c.show(r)}</td>
+                      ))}
+                    </tr>
+                  ))}
                 </tbody>
               </table>
             </div>
