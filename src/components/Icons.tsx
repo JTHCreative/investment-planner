@@ -25,6 +25,7 @@ type P = { size?: number };
 export const LogoIcon = (p: P) => <Icon {...p}><path d="M3 3v18h18" /><path d="m19 9-5 5-4-4-3 3" /></Icon>;
 export const SignOutIcon = (p: P) => <Icon {...p}><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><path d="m16 17 5-5-5-5" /><path d="M21 12H9" /></Icon>;
 export const InfoIcon = (p: P) => <Icon {...p}><circle cx="12" cy="12" r="10" /><path d="M12 16v-4" /><path d="M12 8h.01" /></Icon>;
+export const MinusIcon = (p: P) => <Icon {...p}><path d="M5 12h14" /></Icon>;
 export const PlusIcon = (p: P) => <Icon {...p}><path d="M12 5v14" /><path d="M5 12h14" /></Icon>;
 export const BarsIcon = (p: P) => <Icon {...p}><path d="M3 3v18h18" /><path d="M18 17V9" /><path d="M13 17V5" /><path d="M8 17v-3" /></Icon>;
 export const TrendUpIcon = (p: P) => <Icon {...p}><path d="M22 7 13.5 15.5 8.5 10.5 2 17" /><path d="M16 7h6v6" /></Icon>;
