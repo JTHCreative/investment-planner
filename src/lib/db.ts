@@ -22,7 +22,7 @@ import {
 import { db } from '../firebase';
 import { applyTrades } from './sim/rebalance';
 import type { ApiKeys } from './market';
-import type { Folder, Portfolio, Revision, Role, Target, Trade, Transaction } from './types';
+import type { Folder, Portfolio, PortfolioIconName, Revision, Role, Target, Trade, Transaction } from './types';
 
 const portfoliosCol = (uid: string) => collection(db, 'users', uid, 'portfolios');
 const portfolioDoc = (uid: string, pid: string) => doc(db, 'users', uid, 'portfolios', pid);
@@ -66,7 +66,7 @@ export function watchRevisions(uid: string, pid: string, cb: (r: Revision[]) => 
 
 export async function createPortfolio(
   uid: string,
-  input: { name: string; description?: string; startingCash: number; targets?: Target[] },
+  input: { name: string; description?: string; startingCash: number; targets?: Target[]; icon?: PortfolioIconName },
 ): Promise<string> {
   const now = Date.now();
   const ref = doc(portfoliosCol(uid));
@@ -78,6 +78,7 @@ export async function createPortfolio(
     cash: input.startingCash,
     holdings: {},
     targets: input.targets ?? [],
+    ...(input.icon ? { icon: input.icon } : {}),
     createdAt: now,
     updatedAt: now,
   });
@@ -87,6 +88,11 @@ export async function createPortfolio(
   }
   await batch.commit();
   return ref.id;
+}
+
+/** Change the icon shown next to a portfolio's name. Owners and editors can. */
+export async function setPortfolioIcon(owner: string, pid: string, icon: PortfolioIconName) {
+  await updateDoc(portfolioDoc(owner, pid), { icon, updatedAt: Date.now() });
 }
 
 export async function updatePortfolioInfo(uid: string, pid: string, info: { name: string; description: string }) {
@@ -158,7 +164,7 @@ export async function duplicatePortfolio(uid: string, source: Portfolio, name: s
   const cleanName = name.trim().slice(0, 80) || `${source.name} (copy)`.slice(0, 80);
   const note = `Copied from ${source.name}`;
   if (mode === 'plan') {
-    const id = await createPortfolio(uid, { name: cleanName, description: source.description, startingCash: source.startingCash });
+    const id = await createPortfolio(uid, { name: cleanName, description: source.description, startingCash: source.startingCash, icon: source.icon });
     if (source.targets.length) await saveTargets(uid, id, source.targets, note);
     return id;
   }
@@ -178,6 +184,7 @@ export async function duplicatePortfolio(uid: string, source: Portfolio, name: s
         cash: source.cash,
         holdings: source.holdings ?? {},
         targets: source.targets,
+        ...(source.icon ? { icon: source.icon } : {}),
         createdAt: now,
         updatedAt: now,
       },

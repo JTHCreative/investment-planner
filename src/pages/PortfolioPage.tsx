@@ -5,6 +5,7 @@ import { AllocationEditor } from '../components/AllocationEditor';
 import { BacktestPanel, ProjectionPanel } from '../components/Analysis';
 import { AreaValueChart, ChartLegend } from '../components/Charts';
 import { DuplicateButton } from '../components/DuplicateDialog';
+import { IconPicker, PortfolioIcon } from '../components/PortfolioIcons';
 import { ShareDialog } from '../components/ShareDialog';
 import {
   ArrowDownIcon,
@@ -26,6 +27,7 @@ import {
   executeTrades,
   moveCash,
   saveTargets,
+  setPortfolioIcon,
   updatePortfolioInfo,
   watchRevisions,
   watchTransactions,
@@ -116,7 +118,12 @@ export function PortfolioPage() {
       {sharing && <ShareDialog portfolio={p} onClose={() => setSharing(false)} />}
       <div className="page-head">
         <div className="titles">
-          <h1>{p.name}</h1>
+          <h1 className="row" style={{ gap: 14 }}>
+            <span className="portfolio-icon lg">
+              <PortfolioIcon name={p.icon} size={26} />
+            </span>
+            {p.name}
+          </h1>
           {p.description && <p className="subtitle">{p.description}</p>}
         </div>
         <div className="figure">
@@ -384,6 +391,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
   const [amount, setAmount] = useState(1000);
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description ?? '');
+  const [icon, setIcon] = useState(p.icon);
   const [error, setError] = useState('');
 
   async function run(action: () => Promise<unknown>) {
@@ -432,6 +440,14 @@ function CashAndSettings({ p }: { p: Portfolio }) {
             Save
           </button>
         </div>
+        <IconPicker
+          value={icon}
+          onChange={(next) => {
+            // Show the choice at once; the saved value follows a moment later.
+            setIcon(next);
+            void run(() => setPortfolioIcon(p.ownerId, p.id, next));
+          }}
+        />
         <div className="divider" />
         <div className="actions">
           <DuplicateButton portfolio={p} className="btn" />

@@ -1,20 +1,21 @@
-import { useState, type DragEvent, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type DragEvent, type FormEvent, type MouseEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { ContextMenu, type MenuEntry } from '../components/ContextMenu';
 import { DuplicateDialog } from '../components/DuplicateDialog';
 import { FolderDialog } from '../components/FolderDialog';
 import { FolderGlyph, folderColor } from '../components/FolderIcons';
+import { IconPicker, PortfolioIcon } from '../components/PortfolioIcons';
 import { BarsIcon, CopyIcon, FolderPlusIcon, GainBadge, MoreIcon, PencilIcon, PlusIcon, ShareIcon, SignOutIcon, UsersIcon } from '../components/Icons';
 import { ShareDialog } from '../components/ShareDialog';
-import { createPortfolio, fileInFolder, leavePortfolio, MY_FOLDER, SHARED_FOLDER } from '../lib/db';
+import { createPortfolio, fileInFolder, leavePortfolio, MY_FOLDER, setPortfolioIcon, SHARED_FOLDER } from '../lib/db';
 import { moneyExact, pct, signedMoney } from '../lib/format';
 import { useAccessiblePortfolios, useFolders, useQuotes, useUsername } from '../lib/hooks';
 import { errorMessage } from '../lib/market';
 import { portfolioPath } from '../lib/paths';
 import { PRESETS } from '../lib/presets';
 import { totalValue } from '../lib/sim/rebalance';
-import type { Folder, Portfolio } from '../lib/types';
+import type { Folder, Portfolio, PortfolioIconName } from '../lib/types';
 
 /** Drag data type for a portfolio card, so folders only react to portfolios being dragged (not text or files). */
 const DRAG_TYPE = 'application/x-portfolio-id';
@@ -42,6 +43,7 @@ export function PortfoliosPage() {
   const [folderDialog, setFolderDialog] = useState<{ folder?: Folder; then?: (id: string) => void } | null>(null);
   const [sharing, setSharing] = useState<Portfolio | null>(null);
   const [duplicating, setDuplicating] = useState<Portfolio | null>(null);
+  const [choosingIcon, setChoosingIcon] = useState<Portfolio | null>(null);
   const [dragging, setDragging] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<string | null>(null);
   const [actionError, setActionError] = useState('');
@@ -68,6 +70,8 @@ export function PortfoliosPage() {
     setMenu({ x: fromButton ? rect.left : e.clientX, y: fromButton ? rect.bottom + 4 : e.clientY, ...target });
   }
 
+  const canEdit = (p: Portfolio) => p.ownerId === me || p.members?.[me] === 'edit';
+
   function portfolioMenu(p: Portfolio): MenuEntry[] {
     const mine = p.ownerId === me;
     const current = folders.folderFor(p);
@@ -82,12 +86,13 @@ export function PortfoliosPage() {
               if (window.confirm(`Stop seeing “${p.name}”? Its owner can share it with you again.`)) void act(() => leavePortfolio(p.ownerId, p.id, me));
             },
           },
+      ...(canEdit(p) ? [{ label: 'Change icon…', icon: <PortfolioIcon name={p.icon} size={14} />, onSelect: () => setChoosingIcon(p) }] : []),
       { label: 'Duplicate…', icon: <CopyIcon size={14} />, onSelect: () => setDuplicating(p) },
       'separator',
       { heading: 'Move to folder' },
       ...folders.folders.map((f) => ({
         label: f.name,
-        icon: <span style={{ color: folderColor(f.color) }}><FolderGlyph icon={f.icon} open={false} size={16} /></span>,
+        icon: <span style={{ color: folderColor(f.color) }}><FolderGlyph open={false} size={16} /></span>,
         checked: f.id === current,
         onSelect: () => void moveTo(p, f.id),
       })),
@@ -168,7 +173,7 @@ export function PortfoliosPage() {
                 onContextMenu={(e) => openMenu(e, { folder: f })}
                 {...dragProps(f)}
               >
-                <FolderGlyph icon={f.icon} open={isSelected || dropTarget === f.id} size={22} />
+                <FolderGlyph open={isSelected || dropTarget === f.id} size={22} />
                 <span className="folder-name">{f.name}</span>
                 <span className="folder-count">{countIn(f.id)}</span>
               </button>
@@ -189,7 +194,7 @@ export function PortfoliosPage() {
           <div className="folder-window-head">
             <h2 id="folder-h" className="row" style={{ gap: 10 }}>
               <span style={{ color: 'var(--line)' }}>
-                <FolderGlyph icon={selected.icon} open size={26} />
+                <FolderGlyph open size={26} />
               </span>
               {selected.name}
               <span className="muted small">{inFolder.length}</span>
@@ -269,6 +274,7 @@ export function PortfoliosPage() {
       )}
       {sharing && <ShareDialog portfolio={sharing} onClose={() => setSharing(null)} />}
       {duplicating && <DuplicateDialog portfolio={duplicating} onClose={() => setDuplicating(null)} />}
+      {choosingIcon && <IconDialog portfolio={choosingIcon} onClose={() => setChoosingIcon(null)} />}
     </div>
   );
 }
@@ -305,13 +311,18 @@ function PortfolioCard({
       onDragEnd={onDragEnd}
       onContextMenu={onMenu}
     >
-      <div className="stack" style={{ gap: 4 }}>
-        {/* The title link stretches over the whole card; the menu button sits above it. */}
-        <Link to={portfolioPath(p, me)} className="name stretched-link" style={{ color: 'var(--text)', textDecoration: 'none' }} draggable={false}>
-          {p.name}
-        </Link>
-        {p.description && <span className="muted small truncate">{p.description}</span>}
-        <ShareTag p={p} me={me} />
+      <div className="card-title">
+        <span className="portfolio-icon">
+          <PortfolioIcon name={p.icon} size={20} />
+        </span>
+        <div className="stack" style={{ gap: 4, minWidth: 0 }}>
+          {/* The title link stretches over the whole card; the menu button sits above it. */}
+          <Link to={portfolioPath(p, me)} className="name stretched-link" style={{ color: 'var(--text)', textDecoration: 'none' }} draggable={false}>
+            {p.name}
+          </Link>
+          {p.description && <span className="muted small truncate">{p.description}</span>}
+          <ShareTag p={p} me={me} />
+        </div>
       </div>
       <div className="stack" style={{ gap: 8, alignItems: 'flex-start' }}>
         <span className="value">{pending ? '…' : moneyExact(value)}</span>
@@ -373,6 +384,7 @@ function CreatePortfolio({
   const [cash, setCash] = useState(100_000);
   const [preset, setPreset] = useState('');
   const [folder, setFolder] = useState(initialFolder);
+  const [icon, setIcon] = useState<PortfolioIconName>('briefcase');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -387,6 +399,7 @@ function CreatePortfolio({
         startingCash: cash,
         description: chosen ? `Started from the ${chosen.name} mix` : '',
         targets: chosen?.targets,
+        icon,
       });
       // New portfolios aren't shared, so My Portfolios is already their home; anything else is filed explicitly.
       if (folder !== MY_FOLDER) await fileInFolder(user.uid, id, folder);
@@ -436,6 +449,9 @@ function CreatePortfolio({
             <option value="__new">New folder…</option>
           </select>
         </label>
+        <div style={{ gridColumn: '1 / -1' }}>
+          <IconPicker value={icon} onChange={setIcon} />
+        </div>
         {error && <p className="error" style={{ gridColumn: '1 / -1' }}>{error}</p>}
         <div className="actions" style={{ gridColumn: '1 / -1' }}>
           <button className="btn primary" disabled={busy || !(cash > 0)}>Create portfolio</button>
@@ -445,3 +461,37 @@ function CreatePortfolio({
     </section>
   );
 }
+
+/** Pick a portfolio's icon from its right-click menu. Choosing one saves it straight away. */
+function IconDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const [icon, setIcon] = useState(p.icon);
+  const [error, setError] = useState('');
+  useEffect(() => {
+    const dialog = ref.current;
+    if (dialog && !dialog.open) dialog.showModal();
+  }, []);
+  function choose(next: PortfolioIconName) {
+    setIcon(next);
+    setError('');
+    setPortfolioIcon(p.ownerId, p.id, next).catch((e) => setError(errorMessage(e)));
+  }
+  return (
+    <dialog ref={ref} className="dialog" onClose={onClose} onClick={(e) => e.target === ref.current && onClose()}>
+      <div className="stack-lg" style={{ gap: 20 }}>
+        <div className="row" style={{ gap: 14 }}>
+          <span className="portfolio-icon lg">
+            <PortfolioIcon name={icon} size={24} />
+          </span>
+          <h2>Icon for “{p.name}”</h2>
+        </div>
+        <IconPicker value={icon} onChange={choose} legend="Pick one" />
+        {error && <p className="error">{error}</p>}
+        <div className="actions">
+          <button type="button" className="btn primary" onClick={onClose}>Done</button>
+        </div>
+      </div>
+    </dialog>
+  );
+}
+

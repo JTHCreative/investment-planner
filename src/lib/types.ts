@@ -29,6 +29,8 @@ export interface Portfolio {
   targets: Target[];
   createdAt: number;
   updatedAt: number;
+  /** Shown next to the name; portfolios from before icons existed have none and show the default. */
+  icon?: PortfolioIconName;
   /** People the owner has shared it with, by account id. */
   members?: Record<string, Role>;
   /** The keys of `members`, kept alongside so Firestore can find everything shared with one person. */
@@ -40,12 +42,12 @@ export interface Folder {
   id: string;
   name: string;
   color: FolderColor;
-  icon: FolderIconName;
   createdAt: number;
 }
 
 export type FolderColor = 'blue' | 'teal' | 'green' | 'orange' | 'red' | 'pink' | 'purple' | 'grey';
-export type FolderIconName =
+/** The icons a portfolio can show next to its name. */
+export type PortfolioIconName =
   | 'briefcase' | 'piggy-bank' | 'wallet' | 'landmark' | 'coins' | 'gem' | 'trending-up' | 'chart-pie' | 'target' | 'rocket'
   | 'shield' | 'house' | 'graduation-cap' | 'baby' | 'heart' | 'star' | 'plane' | 'leaf' | 'globe' | 'users';
 
