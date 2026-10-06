@@ -1,7 +1,7 @@
-import { useState, type FormEvent, type ReactNode } from 'react';
+import { useEffect, useState, type FormEvent, type ReactNode } from 'react';
 import { useUser } from '../auth/AuthProvider';
 import { CheckIcon, ShieldIcon } from '../components/Icons';
-import { saveApiKeys } from '../lib/db';
+import { claimUsername, saveApiKeys, USERNAME_PATTERN, normalizeUsername, watchUsername } from '../lib/db';
 import { errorMessage, type ApiKeys } from '../lib/market';
 
 export function SettingsPage({ current }: { current: Partial<ApiKeys> }) {
@@ -28,6 +28,7 @@ export function SettingsPage({ current }: { current: Partial<ApiKeys> }) {
   return (
     <>
       <h1>Settings</h1>
+      <UsernameCard />
       <form className="card" onSubmit={submit} style={{ maxWidth: 760, padding: 32, gap: 28 }}>
         <div className="card-head" style={{ gap: 8 }}>
           <h2>Market data keys</h2>
@@ -121,5 +122,69 @@ function KeyField({
       </label>
       <p className="xsmall muted">{help}</p>
     </div>
+  );
+}
+
+/** The name other people type to share a portfolio with you. */
+function UsernameCard() {
+  const user = useUser();
+  const [current, setCurrent] = useState<string | null | undefined>(undefined);
+  const [draft, setDraft] = useState('');
+  const [status, setStatus] = useState('');
+  const [busy, setBusy] = useState(false);
+  useEffect(
+    () =>
+      watchUsername(user.uid, (name) => {
+        setCurrent(name);
+        setDraft((d) => d || name || '');
+      }),
+    [user.uid],
+  );
+  const clean = normalizeUsername(draft);
+
+  async function submit(e: FormEvent) {
+    e.preventDefault();
+    setBusy(true);
+    setStatus('');
+    try {
+      await claimUsername(user.uid, clean, current ?? null);
+      setStatus('Saved.');
+    } catch (err) {
+      setStatus(errorMessage(err));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card" onSubmit={submit} style={{ maxWidth: 760, padding: 32, gap: 20 }}>
+      <div className="card-head" style={{ gap: 8 }}>
+        <h2>Username</h2>
+        <p className="muted" style={{ lineHeight: '24px' }}>
+          People type this to share a portfolio with you, and it’s shown to others who can see a portfolio you share.
+        </p>
+      </div>
+      <label className="field" style={{ maxWidth: 360 }}>
+        Username
+        <span className="affix has-pre">
+          <span className="pre">@</span>
+          <input value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="e.g. alex_saves" autoCapitalize="none" autoComplete="off" spellCheck={false} maxLength={21} />
+        </span>
+      </label>
+      <p className="xsmall muted">3–20 lowercase letters, numbers or underscores.</p>
+      <div className="actions" style={{ gap: 16 }}>
+        <button className="btn primary" disabled={busy || !USERNAME_PATTERN.test(clean) || clean === current} style={{ padding: '0 20px' }}>
+          {current ? 'Change username' : 'Save username'}
+        </button>
+        {status === 'Saved.' ? (
+          <span className="badge badge-gain">
+            <CheckIcon size={14} />
+            Saved.
+          </span>
+        ) : (
+          status && <span className="error">{status}</span>
+        )}
+      </div>
+    </form>
   );
 }

@@ -1,7 +1,13 @@
 import {
+  arrayRemove,
+  arrayUnion,
   collection,
+  collectionGroup,
   deleteDoc,
+  deleteField,
   doc,
+  FieldPath,
+  getDoc,
   getDocs,
   onSnapshot,
   orderBy,
@@ -9,12 +15,14 @@ import {
   runTransaction,
   setDoc,
   updateDoc,
+  where,
   writeBatch,
+  type DocumentSnapshot,
 } from 'firebase/firestore';
 import { db } from '../firebase';
 import { applyTrades } from './sim/rebalance';
 import type { ApiKeys } from './market';
-import type { Portfolio, Revision, Target, Trade, Transaction } from './types';
+import type { Folder, Portfolio, Revision, Role, Target, Trade, Transaction } from './types';
 
 const portfoliosCol = (uid: string) => collection(db, 'users', uid, 'portfolios');
 const portfolioDoc = (uid: string, pid: string) => doc(db, 'users', uid, 'portfolios', pid);
@@ -23,20 +31,25 @@ const revisionsCol = (uid: string, pid: string) => collection(portfolioDoc(uid, 
 
 type Unsubscribe = () => void;
 
+/** The owner comes from the document's path (users/{ownerId}/portfolios/{id}), so it can't be faked or go stale. */
+const toPortfolio = (snap: DocumentSnapshot) => ({ id: snap.id, ownerId: snap.ref.parent.parent!.id, ...snap.data() }) as Portfolio;
+
+/** The portfolios this person owns, newest first. */
 export function watchPortfolios(uid: string, cb: (p: Portfolio[]) => void, onError: (e: Error) => void): Unsubscribe {
+  return onSnapshot(query(portfoliosCol(uid), orderBy('createdAt', 'desc')), (snap) => cb(snap.docs.map(toPortfolio)), onError);
+}
+
+/** Other people's portfolios shared with this person, newest first. */
+export function watchSharedWithMe(uid: string, cb: (p: Portfolio[]) => void, onError: (e: Error) => void): Unsubscribe {
   return onSnapshot(
-    query(portfoliosCol(uid), orderBy('createdAt', 'desc')),
-    (snap) => cb(snap.docs.map((d) => ({ id: d.id, ...d.data() }) as Portfolio)),
+    query(collectionGroup(db, 'portfolios'), where('memberIds', 'array-contains', uid)),
+    (snap) => cb(snap.docs.map(toPortfolio).sort((a, b) => b.createdAt - a.createdAt)),
     onError,
   );
 }
 
 export function watchPortfolio(uid: string, pid: string, cb: (p: Portfolio | null) => void, onError: (e: Error) => void): Unsubscribe {
-  return onSnapshot(
-    portfolioDoc(uid, pid),
-    (snap) => cb(snap.exists() ? ({ id: snap.id, ...snap.data() } as Portfolio) : null),
-    onError,
-  );
+  return onSnapshot(portfolioDoc(uid, pid), (snap) => cb(snap.exists() ? toPortfolio(snap) : null), onError);
 }
 
 export function watchTransactions(uid: string, pid: string, cb: (t: Transaction[]) => void): Unsubscribe {
@@ -152,7 +165,8 @@ export async function duplicatePortfolio(uid: string, source: Portfolio, name: s
 
   const now = Date.now();
   const ref = doc(portfoliosCol(uid));
-  const [txs, revs] = await Promise.all([getDocs(transactionsCol(uid, source.id)), getDocs(revisionsCol(uid, source.id))]);
+  // The source may be someone else's portfolio shared with this person; the copy is always their own.
+  const [txs, revs] = await Promise.all([getDocs(transactionsCol(source.ownerId, source.id)), getDocs(revisionsCol(source.ownerId, source.id))]);
   // Firestore batches hold up to 500 writes; split long histories across several.
   const writes: [ReturnType<typeof doc>, Record<string, unknown>][] = [
     [
@@ -182,7 +196,8 @@ export async function duplicatePortfolio(uid: string, source: Portfolio, name: s
 }
 
 export async function deletePortfolio(uid: string, pid: string) {
-  for (const col of [transactionsCol(uid, pid), revisionsCol(uid, pid)]) {
+  const ref = portfolioDoc(uid, pid);
+  for (const col of [transactionsCol(uid, pid), revisionsCol(uid, pid), collection(ref, 'private'), collection(ref, 'joins')]) {
     const snap = await getDocs(col);
     const batch = writeBatch(db);
     snap.docs.forEach((d) => batch.delete(d.ref));
@@ -200,3 +215,157 @@ export function watchApiKeys(uid: string, cb: (keys: Partial<ApiKeys>) => void, 
 export async function saveApiKeys(uid: string, keys: ApiKeys) {
   await setDoc(doc(db, 'users', uid), { apiKeys: { finnhub: keys.finnhub.trim(), alphaVantage: keys.alphaVantage.trim() } }, { merge: true });
 }
+
+/* ---------- Sharing ---------- */
+
+const linkDoc = (owner: string, pid: string) => doc(portfolioDoc(owner, pid), 'private', 'link');
+const joinDoc = (owner: string, pid: string, uid: string) => doc(portfolioDoc(owner, pid), 'joins', uid);
+
+/** Give someone access, change what they can do, or (with `null`) take their access away. Owner only. */
+export async function setMemberRole(owner: string, pid: string, member: string, role: Role | null) {
+  const ref = portfolioDoc(owner, pid);
+  if (role) await updateDoc(ref, new FieldPath('members', member), role, 'memberIds', arrayUnion(member));
+  else await updateDoc(ref, new FieldPath('members', member), deleteField(), 'memberIds', arrayRemove(member));
+}
+
+/** Stop seeing a portfolio someone shared with you. */
+export async function leavePortfolio(owner: string, pid: string, me: string) {
+  await setMemberRole(owner, pid, me, null);
+}
+
+export interface ShareLink {
+  /** Secret part of the link. A new token makes every earlier link stop working. */
+  token: string;
+  /** What someone opening the link gets, or 'off' when the link is turned off. */
+  role: Role | 'off';
+}
+
+/** The owner's view of the share link. */
+export function watchShareLink(owner: string, pid: string, cb: (link: ShareLink | null) => void, onError: (e: Error) => void): Unsubscribe {
+  return onSnapshot(linkDoc(owner, pid), (snap) => cb(snap.exists() ? (snap.data() as ShareLink) : null), onError);
+}
+
+export async function setShareLink(owner: string, pid: string, link: ShareLink) {
+  await setDoc(linkDoc(owner, pid), link);
+}
+
+/** A long random token for share links: 128 bits, URL-safe. */
+export function newLinkToken(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
+/**
+ * Join a portfolio through a share link. The link says which role it grants, but the owner may have changed it since,
+ * so if joining with that role is refused, the other one is tried. Returns false when the link doesn't work at all.
+ */
+export async function joinWithLink(owner: string, pid: string, token: string, hint: Role, me: string): Promise<boolean> {
+  const ref = portfolioDoc(owner, pid);
+  // Already have access (or it's your own)? Nothing to join.
+  try {
+    if ((await getDoc(ref)).exists()) return true;
+  } catch {
+    // Not readable yet: expected before joining.
+  }
+  for (const role of hint === 'edit' ? (['edit', 'view'] as const) : (['view', 'edit'] as const)) {
+    const batch = writeBatch(db);
+    batch.set(joinDoc(owner, pid, me), { token, at: Date.now() });
+    batch.update(ref, new FieldPath('members', me), role, 'memberIds', arrayUnion(me));
+    try {
+      await batch.commit();
+      return true;
+    } catch {
+      // Try the other role; the rules accept only the link's current one.
+    }
+  }
+  return false;
+}
+
+/* ---------- Usernames ---------- */
+
+export const USERNAME_PATTERN = /^[a-z0-9_]{3,20}$/;
+
+export const normalizeUsername = (name: string) => name.trim().replace(/^@/, '').toLowerCase();
+
+const profileCache = new Map<string, Promise<string | null>>();
+
+/** Someone's username, or null if they haven't picked one. Cached for the session. */
+export function getUsername(uid: string): Promise<string | null> {
+  let hit = profileCache.get(uid);
+  if (!hit) {
+    hit = getDoc(doc(db, 'profiles', uid)).then(
+      (snap) => (snap.data()?.username as string | undefined) ?? null,
+      () => null,
+    );
+    profileCache.set(uid, hit);
+  }
+  return hit;
+}
+
+export function watchUsername(uid: string, cb: (name: string | null) => void): Unsubscribe {
+  return onSnapshot(
+    doc(db, 'profiles', uid),
+    (snap) => cb((snap.data()?.username as string | undefined) ?? null),
+    () => cb(null),
+  );
+}
+
+/** The account holding a username, or null if nobody does. */
+export async function findUsername(name: string): Promise<string | null> {
+  const snap = await getDoc(doc(db, 'usernames', normalizeUsername(name)));
+  return snap.exists() ? (snap.data().uid as string) : null;
+}
+
+/** Claim a username, releasing the old one in the same step. Fails if someone else already has it. */
+export async function claimUsername(uid: string, name: string, previous: string | null) {
+  const clean = normalizeUsername(name);
+  if (!USERNAME_PATTERN.test(clean)) throw new Error('Use 3–20 lowercase letters, numbers or underscores.');
+  if (clean === previous) return;
+  if (await findUsername(clean)) throw new Error(`“${clean}” is taken. Try another.`);
+  const batch = writeBatch(db);
+  batch.set(doc(db, 'usernames', clean), { uid });
+  batch.set(doc(db, 'profiles', uid), { username: clean });
+  if (previous) batch.delete(doc(db, 'usernames', previous));
+  await batch.commit();
+  profileCache.set(uid, Promise.resolve(clean));
+}
+
+/* ---------- Folders ---------- */
+
+/** Built-in folders every account has. They can be restyled or renamed, but not deleted. */
+export const MY_FOLDER = 'mine';
+export const SHARED_FOLDER = 'shared';
+
+export interface FolderState {
+  /** Custom folders, plus any styling of the built-in ones. */
+  folders: Record<string, Omit<Folder, 'id'>>;
+  /** Which folder each portfolio is filed in, by portfolio id. Portfolios not listed go to a built-in folder. */
+  folderOf: Record<string, string>;
+}
+
+/** Folders live on the user's own document, so they come and go with the account and need no extra rules. */
+export function watchFolders(uid: string, cb: (s: FolderState) => void, onError: (e: Error) => void): Unsubscribe {
+  return onSnapshot(
+    doc(db, 'users', uid),
+    (snap) => cb({ folders: snap.data()?.folders ?? {}, folderOf: snap.data()?.folderOf ?? {} }),
+    onError,
+  );
+}
+
+export async function saveFolder(uid: string, folder: Folder) {
+  const { id, ...rest } = folder;
+  await setDoc(doc(db, 'users', uid), { folders: { [id]: rest } }, { merge: true });
+}
+
+/** Delete a folder. Its portfolios go back to the built-in folders. */
+export async function deleteFolder(uid: string, id: string, folderOf: Record<string, string>) {
+  const unfile = Object.fromEntries(Object.entries(folderOf).filter(([, f]) => f === id).map(([pid]) => [pid, deleteField()]));
+  await setDoc(doc(db, 'users', uid), { folders: { [id]: deleteField() }, folderOf: unfile }, { merge: true });
+}
+
+export async function fileInFolder(uid: string, pid: string, folderId: string) {
+  await setDoc(doc(db, 'users', uid), { folderOf: { [pid]: folderId } }, { merge: true });
+}
+
+export const newFolderId = () => doc(collection(db, 'users')).id;
+

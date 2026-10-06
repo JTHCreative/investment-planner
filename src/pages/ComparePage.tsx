@@ -5,7 +5,8 @@ import { ChartLegend, SERIES_COLORS, ValueLineChart } from '../components/Charts
 import { ArrowDownIcon, ArrowUpIcon, BackIcon } from '../components/Icons';
 import { PlanAssets } from '../components/PlanAssets';
 import { money, monthLabel, pct, pctSigned } from '../lib/format';
-import { useAlignedReturns, usePortfolios } from '../lib/hooks';
+import { useAccessiblePortfolios, useAlignedReturns } from '../lib/hooks';
+import { portfolioPath } from '../lib/paths';
 import { trailingYears } from '../lib/sim/series';
 import { backtest, project } from '../lib/sim/simulate';
 
@@ -25,7 +26,7 @@ const OUTCOMES: [Outcome, string][] = [
 /** Put several plans through the same history and the same simulated futures, side by side. */
 export function ComparePage() {
   const user = useUser();
-  const portfolios = usePortfolios(user.uid);
+  const portfolios = useAccessiblePortfolios(user.uid);
   const withPlans = portfolios.data.filter((p) => p.targets.some((t) => t.weight > 0));
   const [picked, setPicked] = useState<string[] | null>(null);
   const selectedIds = picked ?? withPlans.slice(0, MAX).map((p) => p.id);
@@ -255,7 +256,7 @@ export function ComparePage() {
                       >
                         <td>
                           <Link
-                            to={`/p/${r.portfolio.id}`}
+                            to={portfolioPath(r.portfolio, user.uid)}
                             className="row"
                             style={{ display: 'inline-flex', gap: 10 }}
                             onClick={(e) => e.stopPropagation()}

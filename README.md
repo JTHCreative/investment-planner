@@ -39,12 +39,26 @@ ones.
 ### Data model
 
 ```
-users/{uid}                          apiKeys {finnhub, alphaVantage}
-users/{uid}/portfolios/{id}          name, startingCash, cash, holdings{SYM: {shares, costBasis}}, targets[{symbol, weight}]
+users/{uid}                          apiKeys {finnhub, alphaVantage}, folders{id: {name, color, icon}}, folderOf{portfolioId: folderId}
+users/{uid}/portfolios/{id}          name, startingCash, cash, holdings{SYM: {shares, costBasis}}, targets[{symbol, weight}],
+                                     members{uid: 'view' | 'edit'}, memberIds[]   (who it's shared with)
 users/{uid}/portfolios/{id}/transactions/{id}   buy / sell / deposit / withdrawal log
 users/{uid}/portfolios/{id}/revisions/{id}      every saved version of the target plan, with an optional note
+users/{uid}/portfolios/{id}/private/link        share link {token, role}; only the owner can read it
+users/{uid}/portfolios/{id}/joins/{uid}         written by someone opening the share link, as proof they had the token
+usernames/{name}                     {uid}: who holds a username
+profiles/{uid}                       {username}: shown to people a portfolio is shared with
 marketHistory/{symbol}               shared monthly price cache: dates[], closes[], fetchedAt
 ```
+
+**Sharing.** The owner can add people by username (each set to *view* or *edit*), or turn on a link that gives anyone
+who opens it view or edit access. Viewers see everything but change nothing; editors can also trade, move cash, rename
+and change the plan; only the owner can share or delete. `firestore.rules` enforces all of this, and
+`rules-tests/` checks it against the emulator (`npm run test:rules`).
+
+**Folders** are personal: everyone files portfolios, including ones shared with them, their own way. Every account
+has *My Portfolios* and *Shared Portfolios*; portfolios not filed anywhere else land in one of those two, depending on
+whether they're shared.
 
 ### The math (`src/lib/sim/`, unit-tested)
 
@@ -82,6 +96,7 @@ http://localhost:4000 shows the stored data. Drop `VITE_MARKET_PROVIDER=mock` to
 
 ```bash
 npm test              # simulation unit tests
+npm run test:rules    # security rules tests (starts the Firestore emulator itself; needs Java and the Firebase CLI)
 npm run typecheck
 ```
 
@@ -94,9 +109,10 @@ The app is wired to the Firebase project **investment-planner-40f1d** (web confi
 1. **Authentication** → Get started → enable **Email/Password** (and **Google** if you want it on the web).
 2. **Authentication → Settings → Authorized domains** → add `<owner>.github.io` (for GitHub Pages).
 3. **Firestore Database** → Create database (production mode; pick a location near you).
-4. **Firestore Database → Rules** → paste in the contents of `firestore.rules` and **Publish**. (Or, from your computer:
-   `npm i -g firebase-tools && firebase login && firebase deploy --only firestore`.) Re-do this whenever
-   `firestore.rules` changes.
+4. **Deploy the rules and indexes** from your computer: `npm i -g firebase-tools && firebase login && firebase deploy --only firestore`.
+   This publishes `firestore.rules` and `firestore.indexes.json` (sharing needs an index on `memberIds` to find
+   portfolios shared with someone). Re-do this whenever either file changes. The GitHub Pages workflow only publishes
+   the website, not these.
 
 No billing upgrade is needed.
 

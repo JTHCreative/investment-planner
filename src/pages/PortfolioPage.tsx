@@ -1,23 +1,28 @@
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { useUser } from '../auth/AuthProvider';
 import { AllocationEditor } from '../components/AllocationEditor';
 import { BacktestPanel, ProjectionPanel } from '../components/Analysis';
 import { AreaValueChart, ChartLegend } from '../components/Charts';
 import { DuplicateButton } from '../components/DuplicateDialog';
+import { ShareDialog } from '../components/ShareDialog';
 import {
   ArrowDownIcon,
   ArrowUpIcon,
   BackIcon,
   ChevronIcon,
   GainBadge,
+  EyeIcon,
   RefreshIcon,
+  ShareIcon,
+  SignOutIcon,
   TrashIcon,
   WalletIcon,
 } from '../components/Icons';
 import { typeLabel } from '../components/SymbolSearch';
 import {
   deletePortfolio,
+  leavePortfolio,
   executeTrades,
   moveCash,
   saveTargets,
@@ -26,7 +31,7 @@ import {
   watchTransactions,
 } from '../lib/db';
 import { date, monthLabel, moneyExact, pct, pctSigned, shares, signedMoney } from '../lib/format';
-import { useHistories, usePortfolio, useQuotes } from '../lib/hooks';
+import { useHistories, usePortfolio, useQuotes, useUsername } from '../lib/hooks';
 import { errorMessage, getQuotes } from '../lib/market';
 import { holdingsValue, planRebalance, totalValue, validateTargets } from '../lib/sim/rebalance';
 import { isoDate, valueHistory } from '../lib/sim/valuation';
@@ -49,10 +54,20 @@ function colorMap(p: Portfolio): Map<string, string> {
   return map;
 }
 
+/** What the signed-in person may do with the open portfolio. */
+interface Access {
+  isOwner: boolean;
+  canEdit: boolean;
+}
+const AccessContext = createContext<Access>({ isOwner: true, canEdit: true });
+const useAccess = () => useContext(AccessContext);
+
 export function PortfolioPage() {
-  const { id = '' } = useParams();
+  // Your own portfolios are at /p/:id; ones shared with you at /s/:owner/:id.
+  const { id = '', owner } = useParams();
   const user = useUser();
-  const portfolio = usePortfolio(user.uid, id);
+  const portfolio = usePortfolio(owner ?? user.uid, id);
+  const [sharing, setSharing] = useState(false);
   const [params, setParams] = useSearchParams();
   const tab = (params.get('tab') as Tab) || 'overview';
 
@@ -65,7 +80,15 @@ export function PortfolioPage() {
 
   if (portfolio.loading) return <p className="muted">Loading…</p>;
   if (portfolio.error) return <p className="error">{portfolio.error}</p>;
-  if (!p) return <p>Portfolio not found. <Link to="/">Back to portfolios</Link></p>;
+  if (!p)
+    return (
+      <p>
+        {owner && owner !== user.uid ? 'This portfolio isn’t shared with you, or it was deleted.' : 'Portfolio not found.'}{' '}
+        <Link to="/">Back to portfolios</Link>
+      </p>
+    );
+  const isOwner = p.ownerId === user.uid;
+  const access: Access = { isOwner, canEdit: isOwner || p.members?.[user.uid] === 'edit' };
 
   const prices = Object.fromEntries(Object.values(quotes.data).map((q) => [q.symbol, q.price]));
   const pricesReady = Object.keys(p.holdings ?? {}).every((s) => s in prices);
@@ -73,14 +96,24 @@ export function PortfolioPage() {
   const gain = value - p.startingCash;
 
   return (
-    <>
+    <AccessContext.Provider value={access}>
       <div className="row spread" style={{ marginBottom: -8 }}>
         <Link to="/" className="back-link" style={{ marginBottom: 0 }}>
           <BackIcon />
           Back to portfolios
         </Link>
-        <DuplicateButton portfolio={p} className="btn sm" />
+        <div className="actions">
+          {isOwner && (
+            <button className="btn sm" onClick={() => setSharing(true)}>
+              <ShareIcon size={16} />
+              Share
+            </button>
+          )}
+          <DuplicateButton portfolio={p} className="btn sm" />
+        </div>
       </div>
+      {!isOwner && <SharedBanner p={p} canEdit={access.canEdit} />}
+      {sharing && <ShareDialog portfolio={p} onClose={() => setSharing(false)} />}
       <div className="page-head">
         <div className="titles">
           <h1>{p.name}</h1>
@@ -116,7 +149,38 @@ export function PortfolioPage() {
       {tab === 'backtest' && <AnalysisTab p={p} prices={prices} kind="backtest" />}
       {tab === 'projection' && <AnalysisTab p={p} prices={prices} kind="projection" />}
       {tab === 'activity' && <Activity p={p} />}
-    </>
+    </AccessContext.Provider>
+  );
+}
+
+/** On someone else's portfolio: whose it is, what you can do, and a way to stop seeing it. */
+function SharedBanner({ p, canEdit }: { p: Portfolio; canEdit: boolean }) {
+  const user = useUser();
+  const navigate = useNavigate();
+  const owner = useUsername(p.ownerId);
+  const [error, setError] = useState('');
+  return (
+    <div className="notice">
+      {canEdit ? <ShareIcon size={20} /> : <EyeIcon size={20} />}
+      <p>
+        Shared with you{owner ? ` by @${owner}` : ''}.{' '}
+        {canEdit ? 'You can trade and change the plan; only they can share or delete it.' : 'You can look, but not make changes.'}
+        {error && <span className="error"> {error}</span>}
+      </p>
+      <button
+        className="btn sm"
+        onClick={() =>
+          confirm(`Stop seeing “${p.name}”? Its owner can share it with you again.`) &&
+          leavePortfolio(p.ownerId, p.id, user.uid).then(
+            () => navigate('/'),
+            (e) => setError(errorMessage(e)),
+          )
+        }
+      >
+        <SignOutIcon size={16} />
+        Leave
+      </button>
+    </div>
   );
 }
 
@@ -130,6 +194,7 @@ function StatCard({ label, children }: { label: string; children: ReactNode }) {
 }
 
 function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<string, Quote>; pricesReady: boolean }) {
+  const { canEdit } = useAccess();
   const prices = Object.fromEntries(Object.values(quotes).map((q) => [q.symbol, q.price]));
   const total = totalValue(p, prices);
   const invested = holdingsValue(p.holdings ?? {}, prices);
@@ -156,9 +221,11 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
             <h2>Nothing is invested yet</h2>
             <p className="muted small">Pick a mix of investments, then buy them with your pretend cash at today’s prices.</p>
           </div>
-          <div className="actions">
-            <Link className="btn primary" to="?tab=plan">Choose how to invest</Link>
-          </div>
+          {canEdit && (
+            <div className="actions">
+              <Link className="btn primary" to="?tab=plan">Choose how to invest</Link>
+            </div>
+          )}
         </section>
       ) : (
         <>
@@ -256,9 +323,8 @@ function Overview({ p, quotes, pricesReady }: { p: Portfolio; quotes: Record<str
 }
 
 function PerformanceChart({ p, quotes }: { p: Portfolio; quotes: Record<string, Quote> }) {
-  const user = useUser();
   const [txs, setTxs] = useState<Transaction[]>([]);
-  useEffect(() => watchTransactions(user.uid, p.id, setTxs), [user.uid, p.id]);
+  useEffect(() => watchTransactions(p.ownerId, p.id, setTxs), [p.ownerId, p.id]);
   const traded = [...new Set(txs.filter((t) => t.symbol).map((t) => t.symbol!))];
   const histories = useHistories(traded);
   const points = useMemo(() => {
@@ -313,8 +379,8 @@ function PerformanceChart({ p, quotes }: { p: Portfolio; quotes: Record<string, 
 }
 
 function CashAndSettings({ p }: { p: Portfolio }) {
-  const user = useUser();
   const navigate = useNavigate();
+  const { isOwner, canEdit } = useAccess();
   const [amount, setAmount] = useState(1000);
   const [name, setName] = useState(p.name);
   const [description, setDescription] = useState(p.description ?? '');
@@ -329,6 +395,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
     }
   }
 
+  if (!canEdit) return null;
   return (
     <details className="panel" open>
       <summary>
@@ -344,8 +411,8 @@ function CashAndSettings({ p }: { p: Portfolio }) {
               <input type="number" min={0} step={100} value={amount} onChange={(e) => setAmount(Number(e.target.value))} />
             </span>
           </label>
-          <button className="btn" onClick={() => run(() => moveCash(user.uid, p.id, amount))}>Add pretend cash</button>
-          <button className="btn" onClick={() => run(() => moveCash(user.uid, p.id, -amount))}>Withdraw</button>
+          <button className="btn" onClick={() => run(() => moveCash(p.ownerId, p.id, amount))}>Add pretend cash</button>
+          <button className="btn" onClick={() => run(() => moveCash(p.ownerId, p.id, -amount))}>Withdraw</button>
         </div>
         <div className="divider" />
         <div className="row wrap" style={{ gap: 12, alignItems: 'flex-end' }}>
@@ -360,7 +427,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
           <button
             className="btn"
             disabled={!name.trim()}
-            onClick={() => run(() => updatePortfolioInfo(user.uid, p.id, { name: name.trim(), description }))}
+            onClick={() => run(() => updatePortfolioInfo(p.ownerId, p.id, { name: name.trim(), description }))}
           >
             Save
           </button>
@@ -368,12 +435,13 @@ function CashAndSettings({ p }: { p: Portfolio }) {
         <div className="divider" />
         <div className="actions">
           <DuplicateButton portfolio={p} className="btn" />
+          {isOwner && (
           <button
             className="btn danger"
             onClick={() =>
               confirm(`Delete "${p.name}" and its history? This can’t be undone.`) &&
               run(async () => {
-                await deletePortfolio(user.uid, p.id);
+                await deletePortfolio(p.ownerId, p.id);
                 navigate('/');
               })
             }
@@ -381,6 +449,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
             <TrashIcon />
             Delete portfolio
           </button>
+          )}
         </div>
         {error && <p className="error">{error}</p>}
       </div>
@@ -389,7 +458,7 @@ function CashAndSettings({ p }: { p: Portfolio }) {
 }
 
 function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
-  const user = useUser();
+  const { canEdit } = useAccess();
   const [draft, setDraft] = useState<Target[]>(p.targets);
   const [note, setNote] = useState('');
   const [trades, setTrades] = useState<Trade[] | null>(null);
@@ -415,14 +484,14 @@ function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
 
   const save = () =>
     run(async () => {
-      await saveTargets(user.uid, p.id, draft, note);
+      await saveTargets(p.ownerId, p.id, draft, note);
       setNote('');
       setMessage('Plan saved.');
     });
 
   const preview = () =>
     run(async () => {
-      if (dirty) await saveTargets(user.uid, p.id, draft, note);
+      if (dirty) await saveTargets(p.ownerId, p.id, draft, note);
       const symbols = [...new Set([...Object.keys(p.holdings ?? {}), ...draft.map((t) => t.symbol)])];
       const fresh = await getQuotes(symbols);
       const prices = Object.fromEntries(Object.values(fresh).map((q) => [q.symbol, q.price]));
@@ -431,7 +500,7 @@ function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
 
   const execute = () =>
     run(async () => {
-      await executeTrades(user.uid, p.id, trades!, note || 'Rebalance to plan');
+      await executeTrades(p.ownerId, p.id, trades!, note || 'Rebalance to plan');
       setTrades(null);
       setNote('');
       setMessage('Done. Your pretend portfolio now matches the plan.');
@@ -450,20 +519,27 @@ function PlanTab({ p, amount }: { p: Portfolio; amount: number }) {
             Decide what share of the money goes where. You can change this any time; each saved version is kept under Activity.
           </p>
         </div>
-        <AllocationEditor targets={draft} amount={amount} onChange={(t) => { setDraft(t); setTrades(null); }} />
-        <label className="field">
-          Note
-          <input maxLength={200} value={note} placeholder="Why this plan? (optional)" onChange={(e) => setNote(e.target.value)} />
-        </label>
+        {/* A disabled fieldset turns every control inside it off, so viewers see the plan exactly as editors do. */}
+        <fieldset className="bare-fieldset" disabled={!canEdit}>
+          <AllocationEditor targets={draft} amount={amount} onChange={(t) => { setDraft(t); setTrades(null); }} />
+        </fieldset>
+        {canEdit ? (
+          <label className="field">
+            Note
+            <input maxLength={200} value={note} placeholder="Why this plan? (optional)" onChange={(e) => setNote(e.target.value)} />
+          </label>
+        ) : (
+          <p className="muted small">You have view access, so the plan can’t be changed here. Duplicate it to try your own version.</p>
+        )}
         {invalid && draft.length > 0 && <p className="error">{invalid}</p>}
-        <div className="actions">
+        {canEdit && <div className="actions">
           <button className="btn" disabled={busy || !dirty || !!invalid} onClick={save}>Save plan</button>
           <button className="btn primary" disabled={busy || !!invalid || !draft.length} onClick={preview}>
             {Object.keys(p.holdings ?? {}).length ? 'Rebalance to this plan…' : 'Invest using this plan…'}
           </button>
           {dirty && <button className="btn ghost" onClick={() => setDraft(p.targets)}>Undo changes</button>}
           {message && <span className="badge badge-gain">{message}</span>}
-        </div>
+        </div>}
         {error && <p className="error">{error}</p>}
       </section>
 
@@ -558,11 +634,10 @@ const TX_BADGE: Record<Transaction['type'], { label: string; className: string; 
 };
 
 function Activity({ p }: { p: Portfolio }) {
-  const user = useUser();
   const [txs, setTxs] = useState<Transaction[]>([]);
   const [revisions, setRevisions] = useState<Revision[]>([]);
-  useEffect(() => watchTransactions(user.uid, p.id, setTxs), [user.uid, p.id]);
-  useEffect(() => watchRevisions(user.uid, p.id, setRevisions), [user.uid, p.id]);
+  useEffect(() => watchTransactions(p.ownerId, p.id, setTxs), [p.ownerId, p.id]);
+  useEffect(() => watchRevisions(p.ownerId, p.id, setRevisions), [p.ownerId, p.id]);
 
   return (
     <>
