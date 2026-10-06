@@ -45,8 +45,8 @@ export function useAccessiblePortfolios(uid: string): Loadable<Portfolio[]> & { 
 }
 
 const BUILT_IN_FOLDERS: Folder[] = [
-  { id: MY_FOLDER, name: 'My Portfolios', color: 'orange', icon: 'briefcase', createdAt: 0 },
-  { id: SHARED_FOLDER, name: 'Shared Portfolios', color: 'teal', icon: 'users', createdAt: 1 },
+  { id: MY_FOLDER, name: 'My Portfolios', color: 'orange', createdAt: 0 },
+  { id: SHARED_FOLDER, name: 'Shared Portfolios', color: 'teal', createdAt: 1 },
 ];
 
 /** A portfolio's built-in home: shared ones (yours that you've shared, or other people's) go to Shared Portfolios. */

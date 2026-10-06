@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { deleteFolder, MY_FOLDER, newFolderId, saveFolder, SHARED_FOLDER } from '../lib/db';
 import { errorMessage } from '../lib/market';
-import type { Folder, FolderColor, FolderIconName } from '../lib/types';
-import { FOLDER_COLORS, FOLDER_ICONS, FolderGlyph, FolderIcon, folderColor } from './FolderIcons';
+import type { Folder, FolderColor } from '../lib/types';
+import { FOLDER_COLORS, FolderGlyph, folderColor } from './FolderIcons';
 
 /**
- * Create a folder, or edit one's name, color and icon. Custom folders can also be deleted here; the two built-in
+ * Create a folder, or edit its name and color. Custom folders can also be deleted here; the two built-in
  * folders can be restyled but always stay.
  */
 export function FolderDialog({
@@ -27,7 +27,6 @@ export function FolderDialog({
   const ref = useRef<HTMLDialogElement>(null);
   const [name, setName] = useState(folder?.name ?? '');
   const [color, setColor] = useState<FolderColor>(folder?.color ?? 'purple');
-  const [icon, setIcon] = useState<FolderIconName>(folder?.icon ?? 'piggy-bank');
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
@@ -54,7 +53,7 @@ export function FolderDialog({
     e.preventDefault();
     const id = folder?.id ?? newFolderId();
     void run(async () => {
-      await saveFolder(uid, { id, name: name.trim().slice(0, 40), color, icon, createdAt: folder?.createdAt ?? Date.now() });
+      await saveFolder(uid, { id, name: name.trim().slice(0, 40), color, createdAt: folder?.createdAt ?? Date.now() });
       onClose();
       onSaved?.(id);
     });
@@ -65,7 +64,7 @@ export function FolderDialog({
       <form className="stack-lg" style={{ gap: 20 }} onSubmit={submit}>
         <div className="row" style={{ gap: 14 }}>
           <span className="folder-preview" style={{ color: folderColor(color) }}>
-            <FolderGlyph icon={icon} open={false} size={40} />
+            <FolderGlyph open={false} size={40} />
           </span>
           <h2>{folder ? 'Edit folder' : 'New folder'}</h2>
         </div>
@@ -80,16 +79,6 @@ export function FolderDialog({
             <label key={key} className="swatch-option" title={label}>
               <input type="radio" name="color" checked={color === key} onChange={() => setColor(key)} aria-label={label} />
               <span style={{ background: css }} />
-            </label>
-          ))}
-        </fieldset>
-
-        <fieldset className="icon-picker">
-          <legend>Icon</legend>
-          {FOLDER_ICONS.map(([key, label]) => (
-            <label key={key} className="icon-option" title={label} style={{ color: icon === key ? folderColor(color) : undefined }}>
-              <input type="radio" name="icon" checked={icon === key} onChange={() => setIcon(key)} aria-label={label} />
-              <FolderIcon name={key} size={20} />
             </label>
           ))}
         </fieldset>
