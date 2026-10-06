@@ -5,6 +5,7 @@ import { AuthProvider, useAuth } from './auth/AuthProvider';
 import { BarsIcon, BriefcaseIcon, InfoIcon, LogoIcon, SearchIcon, SettingsIcon, SignOutIcon } from './components/Icons';
 import { auth } from './firebase';
 import { ComparePage } from './pages/ComparePage';
+import { JoinPage } from './pages/JoinPage';
 import { LoginPage } from './pages/LoginPage';
 import { PortfolioPage } from './pages/PortfolioPage';
 import { PortfoliosPage } from './pages/PortfoliosPage';
@@ -40,7 +41,7 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
   if (!apiKeys) return <div className="login muted">Loading…</div>;
   const missing = missingKeys();
 
-  const onPortfolios = location.pathname === '/' || location.pathname.startsWith('/p/');
+  const onPortfolios = location.pathname === '/' || /^\/(p|s|join)\//.test(location.pathname);
   const navClass = (active: boolean) => (active ? 'active' : undefined);
 
   return (
@@ -83,6 +84,8 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
         <Routes>
           <Route path="/" element={<PortfoliosPage />} />
           <Route path="/p/:id" element={<PortfolioRoute />} />
+          <Route path="/s/:owner/:id" element={<PortfolioRoute />} />
+          <Route path="/join/:owner/:id/:token" element={<JoinPage />} />
           <Route path="/compare" element={<ComparePage />} />
           <Route path="/research" element={<ResearchPage />} />
           <Route path="/research/:symbol" element={<ResearchPage />} />
@@ -97,8 +100,8 @@ function SignedIn({ uid, email }: { uid: string; email: string }) {
 
 /** A fresh page per portfolio, so moving from one portfolio to another (e.g. to a new copy) never carries over unsaved edits. */
 function PortfolioRoute() {
-  const { id } = useParams();
-  return <PortfolioPage key={id} />;
+  const { id, owner } = useParams();
+  return <PortfolioPage key={`${owner ?? ''}/${id}`} />;
 }
 
 export default function App() {

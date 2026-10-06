@@ -266,11 +266,11 @@ details.panel > .panel-body { display: flex; flex-direction: column; gap: 24px; 
 .portfolio-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 16px; }
 .portfolio-card { position: relative; display: flex; flex-direction: column; gap: 20px; padding: 24px; border-radius: var(--radius); background: var(--surface); }
 .portfolio-card:hover { background: var(--surface-2); }
-.portfolio-card .name { font-size: 20px; line-height: 28px; padding-right: 110px; }
+.portfolio-card .name { font-size: 20px; line-height: 28px; padding-right: 44px; }
 .portfolio-card .name a { color: var(--text); text-decoration: none; }
 .stretched-link::after { content: ''; position: absolute; inset: 0; border-radius: var(--radius); }
 .portfolio-card .value { font-size: 30px; line-height: 36px; font-variant-numeric: tabular-nums; }
-.card-action { position: absolute; top: 20px; right: 20px; z-index: 1; }
+.card-action { position: absolute; top: 16px; right: 16px; z-index: 1; }
 .mix-bar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; gap: 2px; }
 .mix-bar span { min-width: 2px; }
 @media (max-width: 400px) { .portfolio-grid { grid-template-columns: minmax(0, 1fr); } }
@@ -404,4 +404,107 @@ details.panel > .panel-body { display: flex; flex-direction: column; gap: 24px; 
   .compare-split, .compare-detail { transition: none; }
   .labeled-pie svg { animation: none; }
   .pie-slice { transition: none; }
+}
+
+/* ---------- Home: folders ---------- */
+/* A bookmarks-style bar of folders. Picking one opens it (the folder glyph swings open and turns blue) and fills the
+   window below with its portfolios. Each folder's own color tints its glyph until it's picked. */
+.folder-bar { display: flex; gap: 6px; overflow-x: auto; padding: 6px; margin: 0 -6px; scrollbar-width: thin; }
+.folder-chip {
+  --folder-color: var(--text-muted);
+  display: inline-flex; align-items: center; gap: 10px; flex: none; min-height: 48px; padding: 0 14px 0 10px;
+  border: 1px solid transparent; border-radius: var(--radius-sm); background: var(--surface); color: var(--text-muted);
+  font: inherit; font-size: 14px; cursor: pointer; transition: background 150ms, color 150ms, border-color 150ms, transform 150ms;
+}
+.folder-chip:hover { background: var(--surface-2); color: var(--text); }
+.folder-chip .folder-glyph { color: var(--folder-color); }
+.folder-chip.selected { background: var(--surface-2); color: var(--text); border-color: var(--border); }
+.folder-chip.selected .folder-glyph { color: var(--line); }
+.folder-chip.drop { border-color: var(--line); background: var(--primary-subtle); color: var(--text); transform: translateY(-2px); }
+.folder-chip.drop .folder-glyph { color: var(--line); }
+.folder-chip.add { color: var(--text-muted); background: transparent; border: 1px dashed var(--border); }
+.folder-chip.add:hover { color: var(--text); border-color: var(--hover); }
+.folder-name { white-space: nowrap; }
+.folder-count { min-width: 20px; padding: 0 6px; border-radius: 10px; background: var(--bg); color: var(--text-muted); font-size: 12px; line-height: 20px; text-align: center; font-variant-numeric: tabular-nums; }
+.folder-chip.selected .folder-count { background: var(--primary-subtle); color: var(--text); }
+
+/* The folder glyph: closed and open shapes drawn on top of each other. Opening fades the closed one out while the
+   open one tips forward into place, so it reads as the folder swinging open. */
+.folder-glyph { position: relative; display: inline-block; flex: none; transition: color 250ms; }
+.folder-glyph > svg { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; }
+.folder-glyph > svg path { transition: opacity 250ms ease, transform 350ms cubic-bezier(0.3, 1.4, 0.5, 1); transform-box: view-box; transform-origin: 12px 20px; }
+.folder-glyph .folder-open { opacity: 0; transform: scaleY(0.85) skewX(-10deg); }
+.folder-glyph.open .folder-closed { opacity: 0; }
+.folder-glyph.open .folder-open { opacity: 1; transform: none; }
+.folder-glyph.open > svg { animation: folder-pop 350ms cubic-bezier(0.3, 1.4, 0.5, 1); }
+/* The folder's own icon sits on its front panel, and drops a little as the front tips open. */
+.folder-badge { position: absolute; left: 50%; top: 58%; transform: translate(-50%, -50%); display: flex; transition: transform 350ms cubic-bezier(0.3, 1.4, 0.5, 1); }
+.folder-glyph.open .folder-badge { transform: translate(-40%, -38%); }
+.folder-badge .icon { stroke-width: 2.5; }
+@keyframes folder-pop { 40% { transform: translateY(-2px) scale(1.08); } }
+
+.folder-window { display: flex; flex-direction: column; gap: 16px; padding: 20px; border-radius: var(--radius); background: color-mix(in srgb, var(--surface) 45%, transparent); border: 1px solid var(--surface-2); }
+.folder-window-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.folder-window-head h2 { font-size: 22px; line-height: 28px; }
+.folder-empty { display: flex; flex-direction: column; gap: 8px; padding: 32px 8px; text-align: center; align-items: center; }
+.folder-empty p { max-width: 460px; }
+.folder-window .portfolio-card { animation: card-in 350ms cubic-bezier(0.2, 0.8, 0.2, 1) both; }
+.portfolio-card[draggable='true'] { cursor: grab; }
+.portfolio-card.dragging { opacity: 0.4; }
+@keyframes card-in { from { opacity: 0; transform: translateY(10px); } }
+.share-tag { display: inline-flex; align-items: center; gap: 6px; align-self: flex-start; margin-top: 4px; padding: 2px 8px; border-radius: 10px; background: var(--surface-2); color: var(--text-muted); font-size: 12px; line-height: 18px; }
+.portfolio-card:hover .share-tag { background: var(--border); }
+
+/* Folder editor */
+.folder-preview { display: inline-flex; }
+.swatch-picker, .icon-picker { border: 0; padding: 0; margin: 0; display: flex; flex-wrap: wrap; gap: 8px; }
+.swatch-picker legend, .icon-picker legend { padding: 0; margin-bottom: 8px; font-size: 14px; color: var(--text-muted); }
+.swatch-option, .icon-option { position: relative; cursor: pointer; }
+.swatch-option input, .icon-option input { position: absolute; opacity: 0; width: 100%; height: 100%; margin: 0; cursor: pointer; }
+.swatch-option span { display: block; width: 32px; height: 32px; border-radius: 50%; box-shadow: inset 0 0 0 2px rgb(0 0 0 / 0.15); transition: transform 150ms; }
+.swatch-option input:checked + span { box-shadow: 0 0 0 2px var(--surface), 0 0 0 4px var(--text); }
+.swatch-option:hover span { transform: scale(1.08); }
+.icon-picker { display: grid; grid-template-columns: repeat(10, 1fr); gap: 6px; }
+.icon-option { display: flex; align-items: center; justify-content: center; aspect-ratio: 1; border-radius: var(--radius-control); background: var(--surface-2); color: var(--text-muted); transition: background 150ms, color 150ms; }
+.icon-option:hover { background: var(--border); color: var(--text); }
+.icon-option:has(input:checked) { background: var(--bg); box-shadow: inset 0 0 0 2px currentColor; }
+.swatch-option:has(input:focus-visible) span, .icon-option:has(input:focus-visible) { outline: 2px solid var(--primary-hover); outline-offset: 2px; }
+@media (max-width: 520px) { .icon-picker { grid-template-columns: repeat(5, 1fr); } }
+@media (max-width: 640px) {
+  .folder-window { padding: 12px; margin: 0 -4px; }
+  .folder-window-head h2 { font-size: 18px; line-height: 24px; min-width: 0; }
+}
+
+/* Right-click menu */
+.context-menu { position: fixed; z-index: 100; min-width: 220px; max-width: 300px; padding: 6px; border-radius: var(--radius-sm); background: var(--surface-2); border: 1px solid var(--border); box-shadow: 0 16px 48px rgb(0 0 0 / 0.45); animation: menu-in 120ms ease-out; }
+.context-menu button { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 36px; padding: 0 10px; border: 0; border-radius: var(--radius-control); background: none; color: var(--text); font: inherit; font-size: 14px; text-align: left; cursor: pointer; }
+.context-menu button:hover, .context-menu button:focus-visible { background: var(--border); outline: none; }
+.context-menu button:disabled { opacity: 0.5; cursor: default; }
+.menu-icon { display: inline-flex; width: 16px; justify-content: center; color: var(--text-muted); }
+.menu-label { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.menu-sep { height: 1px; margin: 6px 4px; background: var(--border); }
+.menu-heading { padding: 6px 10px 4px; font-size: 12px; color: var(--text-faint); }
+@keyframes menu-in { from { opacity: 0; transform: translateY(-4px) scale(0.98); } }
+
+/* Share dialog */
+.share-dialog { width: min(560px, calc(100vw - 32px)); }
+.share-add { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; }
+.share-add .field:nth-child(2) { flex: 0 0 140px; }
+.people-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; }
+.people-list li { display: flex; align-items: center; gap: 8px; min-height: 52px; border-top: 1px solid var(--border); }
+.people-list li:first-child { border-top: 0; }
+.person { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; font-size: 14px; }
+.avatar { width: 32px; height: 32px; flex: none; border-radius: 50%; background: var(--primary-subtle); color: var(--text); display: flex; align-items: center; justify-content: center; font-size: 14px; }
+.compact-select { height: 36px; padding: 0 8px; border-radius: var(--radius-control); border: 1px solid var(--border); background: var(--surface-2); color: var(--text); font-size: 14px; }
+.share-link { display: flex; gap: 8px; }
+.share-link input { flex: 1; min-width: 0; height: 36px; padding: 0 10px; border-radius: var(--radius-control); border: 1px solid var(--border); background: var(--bg); color: var(--text-muted); font-family: ui-monospace, Menlo, monospace; font-size: 12px; }
+.icon-btn.sm { width: 32px; height: 32px; }
+.bare-fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+/* View-only plan: drop the editing controls (presets, search, remove buttons) and show weights as plain numbers. */
+.bare-fieldset:disabled .stack-lg > .row.wrap.gap-sm, .bare-fieldset:disabled .plan-table > .row.wrap, .bare-fieldset:disabled button { display: none; }
+.bare-fieldset:disabled .weight-input { border-color: transparent; background: transparent; color: var(--text); opacity: 1; -webkit-text-fill-color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .folder-glyph path, .folder-badge, .folder-chip, .context-menu { transition: none; animation: none; }
+  .folder-glyph.open > svg, .folder-window .portfolio-card { animation: none; }
 }

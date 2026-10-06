@@ -10,29 +10,142 @@ service cloud.firestore {
       return signedIn() && request.auth.uid == uid;
     }
 
-    // Each user's simulated portfolios, trades and plan history are private to them.
-    match /users/{uid}/portfolios/{portfolioId} {
-      allow read, delete: if isOwner(uid);
-      allow create, update: if isOwner(uid)
-        && request.resource.data.name is string
-        && request.resource.data.name.size() > 0
-        && request.resource.data.name.size() <= 80
-        && request.resource.data.cash is number
-        && request.resource.data.cash >= 0
-        && request.resource.data.startingCash is number
-        && request.resource.data.holdings is map
-        && request.resource.data.targets is list
-        && request.resource.data.targets.size() <= 50;
+    function portfolioPath(uid, pid) {
+      return /databases/$(database)/documents/users/$(uid)/portfolios/$(pid);
+    }
 
-      // Transactions and allocation revisions.
-      match /{subcollection}/{docId} {
+    /** The signed-in person's role on a portfolio ('view' or 'edit'), or '' when it isn't shared with them. */
+    function roleOn(data) {
+      return signedIn() ? data.get('members', {}).get(request.auth.uid, '') : '';
+    }
+
+    function canRead(uid, pid) {
+      return isOwner(uid) || roleOn(get(portfolioPath(uid, pid)).data) != '';
+    }
+
+    function canEdit(uid, pid) {
+      return isOwner(uid) || roleOn(get(portfolioPath(uid, pid)).data) == 'edit';
+    }
+
+    function validPortfolio(d) {
+      return d.name is string
+        && d.name.size() > 0
+        && d.name.size() <= 80
+        && d.cash is number
+        && d.cash >= 0
+        && d.startingCash is number
+        && d.holdings is map
+        && d.targets is list
+        && d.targets.size() <= 50
+        && d.get('members', {}) is map
+        && d.get('memberIds', []) is list
+        && d.get('memberIds', []).size() <= 50
+        // memberIds is a copy of the members' ids, there only so "shared with me" can be queried.
+        && d.get('memberIds', []).toSet() == d.get('members', {}).keys().toSet();
+    }
+
+    function changedKeys() {
+      return request.resource.data.diff(resource.data).affectedKeys();
+    }
+
+    /** The update touches who has access, and only this person's own entry. */
+    function onlyOwnAccessChanges() {
+      return changedKeys().hasOnly(['members', 'memberIds'])
+        && request.resource.data.get('members', {}).diff(resource.data.get('members', {})).affectedKeys().hasOnly([request.auth.uid]);
+    }
+
+    /** Someone the portfolio is shared with removes themselves. */
+    function leaving() {
+      return roleOn(resource.data) != ''
+        && onlyOwnAccessChanges()
+        && !(request.auth.uid in request.resource.data.get('members', {}));
+    }
+
+    /**
+     * Someone opens a share link: they add themselves with the link's role. The link's secret token lives in a
+     * document only the owner can read; the newcomer proves they have it by writing it to their join record in the
+     * same batch.
+     */
+    function joiningByLink(uid, pid) {
+      let link = get(/databases/$(database)/documents/users/$(uid)/portfolios/$(pid)/private/link).data;
+      let join = getAfter(/databases/$(database)/documents/users/$(uid)/portfolios/$(pid)/joins/$(request.auth.uid)).data;
+      return signedIn()
+        && !isOwner(uid)
+        && roleOn(resource.data) == ''
+        && onlyOwnAccessChanges()
+        && link.role in ['view', 'edit']
+        && request.resource.data.members[request.auth.uid] == link.role
+        && join.token == link.token;
+    }
+
+    // Portfolios belong to one person and can be shared with others to view or edit.
+    match /users/{uid}/portfolios/{pid} {
+      allow read: if isOwner(uid) || roleOn(resource.data) != '';
+      allow create: if isOwner(uid) && validPortfolio(request.resource.data);
+      allow delete: if isOwner(uid);
+      allow update: if validPortfolio(request.resource.data) && (
+        isOwner(uid)
+        // Editors can trade and change the plan, but only the owner decides who has access.
+        || (roleOn(resource.data) == 'edit' && !changedKeys().hasAny(['members', 'memberIds']))
+        || leaving()
+        || joiningByLink(uid, pid)
+      );
+
+      // Trade log and plan history: readable by everyone with access, written by the owner and editors.
+      match /transactions/{docId} {
+        allow read: if canRead(uid, pid);
+        allow write: if canEdit(uid, pid);
+      }
+      match /revisions/{docId} {
+        allow read: if canRead(uid, pid);
+        allow write: if canEdit(uid, pid);
+      }
+
+      // The share link's token and role. Only the owner can see it, so having access never reveals the link.
+      match /private/{docId} {
         allow read, write: if isOwner(uid);
+      }
+
+      // A record that someone joined through the share link, written by them as proof they had it.
+      match /joins/{joinerId} {
+        allow read, delete: if isOwner(uid) || isOwner(joinerId);
+        allow create, update: if isOwner(joinerId)
+          && request.resource.data.keys().hasOnly(['token', 'at'])
+          && request.resource.data.token is string
+          && request.resource.data.at is number;
       }
     }
 
-    // The user's own settings (market data API keys).
+    // "Shared with me": a query across every user's portfolios for the ones listing this person as a member.
+    match /{path=**}/portfolios/{pid} {
+      allow read: if signedIn() && request.auth.uid in resource.data.get('memberIds', []);
+    }
+
+    // The user's own settings: market data keys and their folders.
     match /users/{uid} {
       allow read, write: if isOwner(uid);
+    }
+
+    // Usernames, so people can share a portfolio by typing someone's name. Each name points at one account, and an
+    // account holds one name at a time: it is claimed or released in the same batch that updates the profile.
+    match /usernames/{name} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && name.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.username == name;
+      allow delete: if signedIn()
+        && resource.data.uid == request.auth.uid
+        && getAfter(/databases/$(database)/documents/profiles/$(request.auth.uid)).data.get('username', '') != name;
+    }
+
+    // Each account's public name, so people with access to a portfolio can see who else has it.
+    match /profiles/{uid} {
+      allow get: if signedIn();
+      allow create, update: if isOwner(uid)
+        && request.resource.data.keys().hasOnly(['username'])
+        && getAfter(/databases/$(database)/documents/usernames/$(request.resource.data.username)).data.uid == uid;
     }
 
     // Shared price-history cache, filled by the app in each user's browser so a symbol is downloaded once for everyone.

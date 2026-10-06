@@ -21,7 +21,7 @@ export function DuplicateButton({ portfolio, className }: { portfolio: Portfolio
   );
 }
 
-function DuplicateDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onClose: () => void }) {
+export function DuplicateDialog({ portfolio: p, onClose }: { portfolio: Portfolio; onClose: () => void }) {
   const user = useUser();
   const navigate = useNavigate();
   const ref = useRef<HTMLDialogElement>(null);

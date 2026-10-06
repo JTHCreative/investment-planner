@@ -14,8 +14,13 @@ export interface Holding {
 
 export type Holdings = Record<string, Holding>;
 
+/** What someone a portfolio is shared with may do: look at it, or also trade and change its plan. */
+export type Role = 'view' | 'edit';
+
 export interface Portfolio {
   id: string;
+  /** The account the portfolio belongs to (from its path, users/{ownerId}/portfolios/{id}). */
+  ownerId: string;
   name: string;
   description?: string;
   startingCash: number;
@@ -24,7 +29,25 @@ export interface Portfolio {
   targets: Target[];
   createdAt: number;
   updatedAt: number;
+  /** People the owner has shared it with, by account id. */
+  members?: Record<string, Role>;
+  /** The keys of `members`, kept alongside so Firestore can find everything shared with one person. */
+  memberIds?: string[];
 }
+
+/** A group of portfolios on the home page. Folders are personal: each person files shared portfolios their own way. */
+export interface Folder {
+  id: string;
+  name: string;
+  color: FolderColor;
+  icon: FolderIconName;
+  createdAt: number;
+}
+
+export type FolderColor = 'blue' | 'teal' | 'green' | 'orange' | 'red' | 'pink' | 'purple' | 'grey';
+export type FolderIconName =
+  | 'briefcase' | 'piggy-bank' | 'wallet' | 'landmark' | 'coins' | 'gem' | 'trending-up' | 'chart-pie' | 'target' | 'rocket'
+  | 'shield' | 'house' | 'graduation-cap' | 'baby' | 'heart' | 'star' | 'plane' | 'leaf' | 'globe' | 'users';
 
 export type TradeSide = 'buy' | 'sell';
 
