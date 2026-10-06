@@ -169,4 +169,7 @@ T-bills. Any slice you don't allocate stays as cash, earning the "cash yield" yo
 - Each new symbol's history uses one of Alpha Vantage's 25 free daily downloads (then it's cached for everyone).
 - The shared history cache is written by users' browsers. Rules check its shape, but a signed-in user could in principle
   write wrong numbers. Fine for you and people you trust; add an allowlist of user IDs before opening sign-up widely.
+- Backtests and comparisons start in January 2000 at the earliest (about as far back as Alpha Vantage's free monthly
+  history goes), or later when a plan holds something younger. On the Compare page each plan goes back as far as it can
+  unless "Use the same months for every plan" is ticked.
 - Past performance and resampled history are not predictions.

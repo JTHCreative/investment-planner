@@ -5,16 +5,16 @@ import { ChartLegend, SERIES_COLORS, ValueLineChart } from '../components/Charts
 import { ArrowDownIcon, ArrowUpIcon, BackIcon } from '../components/Icons';
 import { PlanAssets } from '../components/PlanAssets';
 import { money, monthLabel, pct, pctSigned } from '../lib/format';
-import { useAccessiblePortfolios, useAlignedReturns } from '../lib/hooks';
+import { useAccessiblePortfolios, useHistories } from '../lib/hooks';
 import { portfolioPath } from '../lib/paths';
-import { trailingYears } from '../lib/sim/series';
+import { alignMonthlyReturns, HISTORY_START, startingFrom, trailingYears, type AlignedReturns } from '../lib/sim/series';
 import { backtest, project } from '../lib/sim/simulate';
 
 const MAX = 4;
 
 type View = 'history' | 'projection';
 type Outcome = 'p10' | 'p50' | 'p90';
-type SortKey = 'name' | 'cagr' | 'volatility' | 'maxDrawdown' | 'worstYear' | 'p10' | 'p50' | 'p90';
+type SortKey = 'name' | 'since' | 'cagr' | 'volatility' | 'maxDrawdown' | 'worstYear' | 'p10' | 'p50' | 'p90';
 type SortDir = 'asc' | 'desc';
 
 const OUTCOMES: [Outcome, string][] = [
@@ -23,7 +23,10 @@ const OUTCOMES: [Outcome, string][] = [
   ['p90', 'Optimistic'],
 ];
 
-/** Put several plans through the same history and the same simulated futures, side by side. */
+/**
+ * Put several plans through history and simulated futures, side by side. Each plan goes back as far as all of its
+ * investments have prices (from 2000 at the earliest), unless they're lined up on the months they all share.
+ */
 export function ComparePage() {
   const user = useUser();
   const portfolios = useAccessiblePortfolios(user.uid);
@@ -34,6 +37,7 @@ export function ComparePage() {
   const [amount, setAmount] = useState(100_000);
   const [years, setYears] = useState(20);
   const [lookback, setLookback] = useState(0);
+  const [samePeriod, setSamePeriod] = useState(false);
   const [view, setView] = useState<View>('history');
   const [outcome, setOutcome] = useState<Outcome>('p50');
   const [sort, setSort] = useState<{ key: SortKey; dir: SortDir } | null>(null);
@@ -42,20 +46,34 @@ export function ComparePage() {
   const [detail, setDetail] = useState<{ id: string; open: boolean } | null>(null);
 
   const symbols = [...new Set(selected.flatMap((p) => p.targets.filter((t) => t.weight > 0).map((t) => t.symbol)))].sort();
-  const aligned = useAlignedReturns(symbols);
+  const histories = useHistories(symbols);
 
-  const results = useMemo(() => {
-    if (!aligned.data || aligned.data.returns.length < 12) return null;
-    const window = trailingYears(aligned.data, lookback);
+  const computed = useMemo(() => {
+    if (!histories.data.length) return null;
+    const bySymbol = new Map(histories.data.map((h) => [h.symbol, h]));
+    const planSymbols = (p: (typeof selected)[number]) => p.targets.filter((t) => t.weight > 0).map((t) => t.symbol).sort();
+    if (!symbols.every((s) => bySymbol.has(s))) return null;
+    // Each plan's own window: the months all of its investments have prices. Lined up, it's the months every plan shares.
+    const shared = samePeriod ? alignMonthlyReturns(symbols.map((s) => bySymbol.get(s)!)) : null;
+    const windowFor = (p: (typeof selected)[number]): AlignedReturns =>
+      trailingYears(startingFrom(shared ?? alignMonthlyReturns(planSymbols(p).map((s) => bySymbol.get(s)!))), lookback);
     return selected.map((p) => {
-      const weights = aligned.data!.symbols.map((s) => p.targets.find((t) => t.symbol === s)?.weight ?? 0);
+      const window = windowFor(p);
+      const weights = window.symbols.map((s) => p.targets.find((t) => t.symbol === s)?.weight ?? 0);
+      // Under a year of prices is too little to say anything; such plans are listed as such and left out of the numbers.
+      if (window.returns.length < 12) return { portfolio: p, tooShort: true as const };
       return {
         portfolio: p,
+        tooShort: false as const,
         backtest: backtest(window, weights, { initial: amount, rebalance: 'annually' }),
         projection: project(window.returns, weights, { initial: amount, years, paths: 1000, inflation: 0.025 }),
       };
     });
-  }, [aligned.data, selected.map((p) => p.id + p.updatedAt).join(), amount, years, lookback]);
+  }, [histories.data, selected.map((p) => p.id + p.updatedAt).join(), amount, years, lookback, samePeriod]);
+  type Computed = NonNullable<typeof computed>[number];
+  const usable = computed?.filter((r): r is Extract<Computed, { tooShort: false }> => !r.tooShort) ?? [];
+  const results = usable.length ? usable : null;
+  const tooShort = computed?.filter((r) => r.tooShort).map((r) => r.portfolio.name) ?? [];
 
   function toggle(id: string) {
     const next = selectedIds.includes(id) ? selectedIds.filter((x) => x !== id) : [...selectedIds, id].slice(-MAX);
@@ -74,11 +92,21 @@ export function ComparePage() {
 
   // Each plan keeps its color whatever else is selected (by its position in the full list).
   const colorOf = (id: string) => SERIES_COLORS[withPlans.findIndex((p) => p.id === id) % SERIES_COLORS.length];
-  const chartData = results?.[0]?.backtest.months.map((m, i) => {
-    const row: Record<string, string | number> = { month: monthLabel(m) };
-    results.forEach((r, j) => (row[`s${j}`] = r.backtest.values[i]));
-    return row;
-  });
+  // Plans can start in different months; each line begins where its plan's history does.
+  const allMonths = results ? [...new Set(results.flatMap((r) => r.backtest.months))].sort() : [];
+  const valueAt = results?.map((r) => new Map(r.backtest.months.map((m, i) => [m, r.backtest.values[i]])));
+  const chartData = results
+    ? allMonths.map((m) => {
+        const row: Record<string, string | number> = { month: monthLabel(m) };
+        valueAt!.forEach((v, j) => {
+          const value = v.get(m);
+          if (value !== undefined) row[`s${j}`] = value;
+        });
+        return row;
+      })
+    : undefined;
+  const starts = results?.map((r) => r.backtest.months[0]) ?? [];
+  const sameStart = starts.every((m) => m === starts[0]);
   const projectionData = results?.[0]?.projection.points.map((pt, i) => {
     const row: Record<string, string | number> = { year: `Yr ${pt.year}`, contributed: pt.contributed };
     results.forEach((r, j) => (row[`s${j}`] = r.projection.points[i][outcome]));
@@ -90,6 +118,12 @@ export function ComparePage() {
   type Row = NonNullable<typeof results>[number];
   const endOf = (r: Row) => r.projection.points[r.projection.points.length - 1];
   const columns: { key: SortKey; label: string; value: (r: Row) => number | string; show: (r: Row) => string }[] = [
+    {
+      key: 'since',
+      label: 'History',
+      value: (r) => r.backtest.months.length,
+      show: (r) => `${monthLabel(r.backtest.months[0])} · ${((r.backtest.months.length - 1) / 12).toFixed(1)} yrs`,
+    },
     { key: 'cagr', label: 'Annual return', value: (r) => r.backtest.stats.cagr, show: (r) => pctSigned(r.backtest.stats.cagr) },
     { key: 'volatility', label: 'Volatility', value: (r) => r.backtest.stats.volatility, show: (r) => pct(r.backtest.stats.volatility) },
     { key: 'maxDrawdown', label: 'Worst drop', value: (r) => r.backtest.stats.maxDrawdown, show: (r) => pctSigned(r.backtest.stats.maxDrawdown) },
@@ -164,7 +198,7 @@ export function ComparePage() {
           <label className="field">
             History to use
             <select value={lookback} onChange={(e) => setLookback(Number(e.target.value))}>
-              <option value={0}>All shared history</option>
+              <option value={0}>Since {HISTORY_START.slice(0, 4)}, or as far back as each plan goes</option>
               {[5, 10, 15, 20].map((y) => <option key={y} value={y}>Last {y} years</option>)}
             </select>
           </label>
@@ -173,11 +207,24 @@ export function ComparePage() {
             <input type="number" min={1} max={50} value={years} onChange={(e) => setYears(Math.max(1, Math.min(50, Number(e.target.value) || 1)))} />
           </label>
         </div>
+        <label className="check">
+          <input type="checkbox" checked={samePeriod} onChange={(e) => setSamePeriod(e.target.checked)} />
+          <span>
+            Use the same months for every plan
+            <span className="xsmall muted"> — a fairer race, but limited by whichever plan has the shortest history</span>
+          </span>
+        </label>
       </section>
 
-      {aligned.error && <p className="error">{aligned.error}</p>}
-      {aligned.loading && <p className="muted">Loading price history…</p>}
-      {!aligned.loading && aligned.data && !results && <p className="muted">These plans share less than a year of price history.</p>}
+      {histories.error && <p className="error">{histories.error}</p>}
+      {histories.loading && <p className="muted">Loading price history…</p>}
+      {!histories.loading && tooShort.length > 0 && (
+        <p className="muted small">
+          {samePeriod
+            ? 'These plans share less than a year of price history. Turn off “Use the same months for every plan” to let each go back as far as it can.'
+            : `Left out for having less than a year of price history: ${tooShort.join(', ')}.`}
+        </p>
+      )}
       {results && chartData && (
         <>
           <section className="card" aria-labelledby="chart-h" style={{ gap: 16 }}>
@@ -194,8 +241,9 @@ export function ComparePage() {
                 <div className="card-head">
                   <h3 id="chart-h">History: {money(amount)} invested at the start</h3>
                   <p className="xsmall muted">
-                    Every plan uses the same months ({monthLabel(results[0].backtest.months[0])} to {monthLabel(results[0].backtest.months.at(-1)!)}),
-                    the period all of their investments have existed.
+                    {sameStart
+                      ? `Every plan starts in ${monthLabel(starts[0])}${samePeriod ? ', the first month all of their investments have prices' : ''} and runs to ${monthLabel(allMonths.at(-1)!)}.`
+                      : `Each plan goes back as far as all of its investments have prices, from ${HISTORY_START.slice(0, 4)} at the earliest, so lines start at different times. Plans that start later have had less time to grow, so compare annual returns in the table rather than end values.`}
                   </p>
                 </div>
                 <ValueLineChart data={chartData} xKey="month" series={plotSeries} />
@@ -274,8 +322,9 @@ export function ComparePage() {
                 </table>
               </div>
               <p className="table-note" style={{ padding: '12px 16px 16px' }}>
-                Projections are in today’s dollars (2.5% inflation), rebalanced yearly, from 1,000 simulated futures built out of the same
-                history. Pessimistic and optimistic are the 10th and 90th percentiles. This is a simulation, not a promise or financial advice.
+                Each plan’s returns and risk cover the period in its History column. Projections are in today’s dollars (2.5% inflation),
+                rebalanced yearly, from 1,000 simulated futures built out of that same history. Pessimistic and optimistic are the 10th
+                and 90th percentiles. This is a simulation, not a promise or financial advice.
               </p>
             </section>
             <aside

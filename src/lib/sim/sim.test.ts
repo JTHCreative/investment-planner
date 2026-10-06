@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { PriceSeries } from '../types';
 import { applyTrades, planRebalance, totalValue, validateTargets } from './rebalance';
-import { alignMonthlyReturns, closeOnOrBefore, toMonthly, trailingYears } from './series';
+import { alignMonthlyReturns, closeOnOrBefore, startingFrom, toMonthly, trailingYears } from './series';
 import { backtest, mulberry32, project, runPath } from './simulate';
 import { returnStats } from './stats';
 import { valueHistory } from './valuation';
@@ -16,6 +16,16 @@ function monthlySeries(symbol: string, startYear: number, closes: number[]): Pri
 }
 
 describe('series', () => {
+  it('starts histories in 2000 at the earliest, and later when the data does', () => {
+    const months = ['1999-11', '1999-12', '2000-01', '2000-02', '2000-03'];
+    const aligned = { symbols: ['A'], months, returns: months.map((_, i) => [i / 100]) };
+    // The money goes in at the end of January 2000, so the first return counted is February's.
+    expect(startingFrom(aligned).months).toEqual(['2000-02', '2000-03']);
+    expect(startingFrom(aligned).returns).toEqual([[0.03], [0.04]]);
+    const young = { symbols: ['A'], months: ['2015-06', '2015-07'], returns: [[0.01], [0.02]] };
+    expect(startingFrom(young)).toBe(young);
+  });
+
   it('collapses daily data to month-end closes', () => {
     const s: PriceSeries = {
       symbol: 'X',

@@ -55,6 +55,19 @@ export function alignMonthlyReturns(series: PriceSeries[]): AlignedReturns {
   return { symbols, months, returns };
 }
 
+/**
+ * Backtests and comparisons start no earlier than this: the money goes in at the end of January 2000. Investments with
+ * shorter histories just start later, so each plan goes back as far as all of its investments have prices.
+ */
+export const HISTORY_START = '2000-01';
+
+/** Drop the months before `start` (YYYY-MM), so the window's starting value sits at the end of `start`. */
+export function startingFrom(aligned: AlignedReturns, start = HISTORY_START): AlignedReturns {
+  const from = aligned.months.findIndex((m) => m > start);
+  if (from <= 0) return from === -1 ? { ...aligned, months: [], returns: [] } : aligned;
+  return { symbols: aligned.symbols, months: aligned.months.slice(from), returns: aligned.returns.slice(from) };
+}
+
 /** Keep only the trailing `years` of an aligned window (all of it if `years` is 0 or larger than available). */
 export function trailingYears(aligned: AlignedReturns, years: number): AlignedReturns {
   const n = Math.round(years * 12);

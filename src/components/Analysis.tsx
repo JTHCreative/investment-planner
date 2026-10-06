@@ -1,7 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { money, moneyExact, monthLabel, pct, pctSigned } from '../lib/format';
 import { useAlignedReturns } from '../lib/hooks';
-import { trailingYears } from '../lib/sim/series';
+import { HISTORY_START, startingFrom, trailingYears } from '../lib/sim/series';
 import { backtest, project, type RebalanceFrequency } from '../lib/sim/simulate';
 import type { ReturnStats } from '../lib/sim/stats';
 import type { Target } from '../lib/types';
@@ -64,8 +64,9 @@ export function BacktestPanel({ targets, initial, sourceControl }: { targets: Ta
   const [cashRate, setCashRate] = useState(0.03);
 
   const result = useMemo(() => {
-    if (!aligned.data || aligned.data.months.length < 2) return null;
-    const window = trailingYears(aligned.data, years);
+    if (!aligned.data) return null;
+    const window = trailingYears(startingFrom(aligned.data), years);
+    if (window.months.length < 2) return null;
     const n = aligned.data.symbols.length;
     const pad = (w: number[]) => [...w, ...Array(n - w.length).fill(0)];
     const plan = backtest(window, pad(weights), { initial, rebalance, cashRate, riskFreeRate: cashRate });
@@ -75,7 +76,9 @@ export function BacktestPanel({ targets, initial, sourceControl }: { targets: Ta
     return { plan, bench, window };
   }, [aligned.data, years, rebalance, cashRate, weights.join(','), initial]);
 
-  const maxYears = aligned.data ? Math.floor(aligned.data.months.length / 12) : 0;
+  const available = aligned.data ? startingFrom(aligned.data).months : [];
+  const maxYears = Math.floor(available.length / 12);
+  const fromYear = available.length ? Number(available[0].slice(0, 4)) : Number(HISTORY_START.slice(0, 4));
 
   let body: ReactNode;
   if (!symbols.length) body = <Message>Add investments to the plan to backtest it.</Message>;
@@ -147,7 +150,7 @@ export function BacktestPanel({ targets, initial, sourceControl }: { targets: Ta
         <label className="field" style={{ flex: '0 1 280px' }}>
           Period
           <select value={years} onChange={(e) => setYears(Number(e.target.value))}>
-            <option value={0}>All shared history{maxYears ? ` (${maxYears} yrs)` : ''}</option>
+            <option value={0}>Since {fromYear}{maxYears ? ` (${maxYears} yrs)` : ''}</option>
             {[1, 3, 5, 10, 15, 20, 30].filter((y) => y < maxYears).map((y) => (
               <option key={y} value={y}>Last {y} years</option>
             ))}
